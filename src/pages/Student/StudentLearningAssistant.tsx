@@ -1,7 +1,8 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
+import { chatWithAssistant } from '@/services/learningAssistantApi';
 
 // 定义消息接口
 interface Message {
@@ -18,6 +19,7 @@ interface ChatSession {
   lastMessage: string;
   timestamp: Date;
   messages: Message[];
+  conversationId?: string; // Coze API 的会话ID，用于保持上下文
 }
 
 export default function StudentLearningAssistant() {
@@ -30,13 +32,21 @@ export default function StudentLearningAssistant() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [streamingText, setStreamingText] = useState('');
+  const [currentConversationId, setCurrentConversationId] = useState<string>('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 自动滚动到底部
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingText]);
 
   // 初始化欢迎消息
   useEffect(() => {
     // 创建初始欢迎消息
     const welcomeMessage: Message = {
       id: 'welcome',
-      content: '你好！我是你的智能学习助手，有什么可以帮助你的吗？',
+      content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
       sender: 'assistant',
       timestamp: new Date(),
     };
@@ -63,15 +73,6 @@ export default function StudentLearningAssistant() {
     };
   }, []);
 
-  // 监听消息变化，自动保存
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      saveCurrentChat();
-    }, 2000);
-    
-    return () => clearTimeout(timer);
-  }, [messages, currentSessionId]);
-
   // 保存当前对话
   const saveCurrentChat = () => {
     if (messages.length <= 1) return; // 只有欢迎消息，不需要保存
@@ -87,6 +88,7 @@ export default function StudentLearningAssistant() {
           currentSession.messages = [...messages];
           currentSession.lastMessage = messages[messages.length - 1].content;
           currentSession.timestamp = new Date();
+          currentSession.conversationId = currentConversationId; // 保存会话ID
         }
       } else {
         // 创建新会话
@@ -96,6 +98,7 @@ export default function StudentLearningAssistant() {
           lastMessage: messages[messages.length - 1].content,
           timestamp: new Date(),
           messages: [...messages],
+          conversationId: currentConversationId, // 保存会话ID
         };
         sessions.unshift(newSession);
         setCurrentSessionId(newSession.id);
@@ -107,6 +110,16 @@ export default function StudentLearningAssistant() {
       console.error('保存对话失败:', error);
     }
   };
+
+  // 监听消息变化，自动保存
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveCurrentChat();
+    }, 2000);
+    
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, currentSessionId, currentConversationId]);
 
   // 生成会话标题
   const generateSessionTitle = (messageList: Message[]) => {
@@ -156,6 +169,7 @@ export default function StudentLearningAssistant() {
       if (session) {
         setMessages(session.messages);
         setCurrentSessionId(session.id);
+        setCurrentConversationId(session.conversationId || '');
         
         // 在移动设备上，加载会话后关闭侧边栏
         if (window.innerWidth < 768) {
@@ -172,13 +186,14 @@ export default function StudentLearningAssistant() {
   const createNewSession = () => {
     const welcomeMessage: Message = {
       id: `welcome-${Date.now()}`,
-      content: '你好！我是你的智能学习助手，有什么可以帮助你的吗？',
+      content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
       sender: 'assistant',
       timestamp: new Date(),
     };
     
     setMessages([welcomeMessage]);
     setCurrentSessionId(null);
+    setCurrentConversationId('');
     
     // 在移动设备上，创建新会话后关闭侧边栏
     if (window.innerWidth < 768) {
@@ -288,7 +303,7 @@ export default function StudentLearningAssistant() {
   };
 
   // 发送消息
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim() || isTyping) return;
     
     const userMessage: Message = {
@@ -298,37 +313,59 @@ export default function StudentLearningAssistant() {
       timestamp: new Date(),
     };
     
+    const userMessageContent = inputValue.trim();
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsTyping(true);
+    setStreamingText('');
     
-    // 模拟助手回复
-    setTimeout(() => {
-      let assistantResponse: string;
+    try {
+      // 调用真实的 AI 助手 API
+      const result = await chatWithAssistant(
+        userMessageContent,
+        (chunk) => {
+          // 流式输出回调 - 实时显示 AI 回复
+          setStreamingText(prev => prev + chunk);
+        },
+        currentConversationId // 传递会话ID以保持上下文
+      );
       
-      // 根据用户输入内容生成不同的回复
-      if (inputValue.toLowerCase().includes('你好') || inputValue.toLowerCase().includes('hello')) {
-        assistantResponse = '你好！我是你的智能学习助手，有什么可以帮助你的吗？';
-      } else if (inputValue.toLowerCase().includes('数学') || inputValue.toLowerCase().includes('函数') || inputValue.toLowerCase().includes('方程')) {
-        assistantResponse = '数学是一门很有趣的学科！你是在学习函数、几何、代数还是其他内容？我可以帮你解答具体的数学问题。';
-      } else if (inputValue.toLowerCase().includes('英语') || inputValue.toLowerCase().includes('grammar') || inputValue.toLowerCase().includes('语法')) {
-        assistantResponse = '英语学习需要不断积累。你是在学习语法、词汇、听力还是阅读？告诉我你具体的问题，我会尽力帮助你。';
-      } else if (inputValue.toLowerCase().includes('物理') || inputValue.toLowerCase().includes('化学') || inputValue.toLowerCase().includes('生物')) {
-        assistantResponse = '自然科学探索世界的规律很有意思！你有什么具体的问题想要探讨吗？';
-      } else {
-        assistantResponse = `谢谢你的提问！关于"${inputValue}"这个话题，我可以为你提供更多信息。你可以问我更具体的问题，我会尽力帮助你。`;
+      // 更新会话ID
+      if (result.conversationId) {
+        setCurrentConversationId(result.conversationId);
       }
       
+      // AI 回复完成
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
-        content: assistantResponse,
+        content: result.response,
         sender: 'assistant',
         timestamp: new Date(),
       };
       
       setMessages(prev => [...prev, assistantMessage]);
       setIsTyping(false);
-    }, 1500);
+      setStreamingText('');
+      
+    } catch (error) {
+      console.error('发送消息失败:', error);
+      setIsTyping(false);
+      setStreamingText('');
+      
+      // 显示错误消息
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        content: '抱歉，我遇到了一些问题，暂时无法回复。请稍后再试。',
+        sender: 'assistant',
+        timestamp: new Date(),
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+      
+      toast.error('发送失败，请重试', {
+        description: error instanceof Error ? error.message : '未知错误',
+      });
+    }
   };
 
   // 处理键盘事件
@@ -337,6 +374,47 @@ export default function StudentLearningAssistant() {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  // 格式化消息内容 - 将 Markdown 转换为 HTML
+  const formatMessageContent = (content: string): string => {
+    let html = content;
+    
+    // 1. 转换标题
+    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-bold text-gray-900 dark:text-white mt-4 mb-2 border-l-4 border-blue-500 pl-3">$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-5 mb-3 border-l-4 border-indigo-500 pl-3">$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-gray-900 dark:text-white mt-6 mb-4 border-l-4 border-purple-500 pl-3">$1</h1>');
+    
+    // 2. 转换粗体 **文本**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white">$1</strong>');
+    
+    // 3. 转换斜体 *文本*
+    html = html.replace(/\*(.+?)\*/g, '<em class="italic text-gray-700 dark:text-gray-300">$1</em>');
+    
+    // 4. 转换数学公式 \( ... \)
+    html = html.replace(/\\\(([^)]+)\\\)/g, '<span class="inline-block px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100 rounded font-mono text-sm mx-0.5">$1</span>');
+    
+    // 5. 转换行内代码 `code`
+    html = html.replace(/`([^`]+)`/g, '<code class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded font-mono text-sm">$1</code>');
+    
+    // 6. 转换有序列表（带编号）
+    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="inline-flex items-center justify-center min-w-[24px] h-6 rounded-full bg-blue-500 text-white text-xs font-bold mr-2 flex-shrink-0">$1</span><span class="flex-1 pt-0.5">$2</span></div>');
+    
+    // 7. 转换无序列表
+    html = html.replace(/^[-•]\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="text-blue-500 dark:text-blue-400 mr-2 text-base leading-6">●</span><span class="flex-1">$1</span></div>');
+    
+    // 8. 转换引用 > 文本
+    html = html.replace(/^>\s+(.+)$/gm, '<blockquote class="border-l-4 border-gray-300 dark:border-gray-600 pl-4 py-2 my-2 italic text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-r">$1</blockquote>');
+    
+    // 9. 转换段落（保持空行分隔）
+    const paragraphs = html.split(/\n\n+/);
+    html = paragraphs.map(para => {
+      if (para.trim().startsWith('<')) return para; // 已经是HTML标签
+      if (para.trim() === '') return '';
+      return `<p class="my-2 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`;
+    }).join('\n');
+    
+    return html;
   };
 
   // 过滤会话列表
@@ -515,15 +593,30 @@ export default function StudentLearningAssistant() {
               {messages.map(message => (
                 <div 
                   key={message.id} 
-                  className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
                 >
                   <div className={`max-w-[80%] ${message.sender === 'user' ? 'text-right' : 'text-left'}`}>
-                    <div className={`inline-block rounded-2xl p-4 ${
+                    {message.sender === 'assistant' && (
+                      <div className="flex items-center mb-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center mr-2">
+                          <i className="fa-solid fa-robot text-white text-sm"></i>
+                        </div>
+                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">学习助手</span>
+                      </div>
+                    )}
+                    <div className={`inline-block rounded-2xl p-4 shadow-sm ${
                       message.sender === 'user' 
-                        ? 'bg-blue-600 text-white' 
+                        ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white' 
                         : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700'
                     }`}>
-                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      {message.sender === 'user' ? (
+                        <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                      ) : (
+                        <div 
+                          className="formatted-content leading-relaxed"
+                          dangerouslySetInnerHTML={{ __html: formatMessageContent(message.content) }}
+                        />
+                      )}
                     </div>
                     <p className={`text-xs mt-1 ${message.sender === 'user' ? 'text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -532,20 +625,46 @@ export default function StudentLearningAssistant() {
                 </div>
               ))}
               
-              {/* 正在输入提示 */}
+              {/* AI 正在回复 - 流式输出 */}
               {isTyping && (
-                <div className="flex justify-start">
+                <div className="flex justify-start animate-fadeIn">
                   <div className="max-w-[80%] text-left">
-                    <div className="inline-block rounded-2xl p-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700">
-                      <div className="flex items-center space-x-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    <div className="flex items-center mb-2">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center mr-2">
+                        <i className="fa-solid fa-robot text-white text-sm"></i>
+                      </div>
+                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">学习助手</span>
+                      <div className="ml-2 flex items-center space-x-1">
+                        <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>
+                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                        <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
                       </div>
                     </div>
+                    {streamingText ? (
+                      <div className="inline-block rounded-2xl p-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 shadow-sm">
+                        <div className="flex items-start">
+                          <div 
+                            className="formatted-content leading-relaxed flex-1"
+                            dangerouslySetInnerHTML={{ __html: formatMessageContent(streamingText) }}
+                          />
+                          <span className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse flex-shrink-0"></span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="inline-block rounded-2xl p-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 shadow-sm">
+                        <div className="flex items-center space-x-1">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                          <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
+              
+              {/* 滚动锚点 */}
+              <div ref={messagesEndRef} />
             </div>
           </div>
           

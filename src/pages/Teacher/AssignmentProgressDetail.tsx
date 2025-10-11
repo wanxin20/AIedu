@@ -2,6 +2,7 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { gradeAssignmentWithStream } from "@/services/gradingApi";
 
 // 定义学生作业状态接口
 interface StudentAssignment {
@@ -80,7 +81,7 @@ const generateStudentAssignments = (assignmentId: number, assignmentName: string
         { 
           id: `att-${student.id}-1`, 
           name: `作业提交-${student.name}.jpg`, 
-          url: "/statics/image/706c26f526c6c06d39eed532d1b1d163.jpg", 
+          url: "http://a.gptpro.cn/local_storage/opencoze/tos-cn-i-v4nquku3lp/e327feee-ad14-45d6-964a-5fdedb007e35.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20251011%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20251011T031920Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ea7353b12946736b2648c6243f7fc5f84dd8016f0452e16327ee31ef0cf4a333&x-wf-file_name=706c26f526c6c06d39eed532d1b1d163.jpg", 
           type: "image" 
         }
       ];
@@ -176,19 +177,19 @@ export default function AssignmentProgressDetail() {
   const [comment, setComment] = useState('');
   const [score, setScore] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [totalStudents, setTotalStudents] = useState(0);
-  const [showPracticeSidebar, setShowPracticeSidebar] = useState(false);
   const [practiceProblems, setPracticeProblems] = useState<any[]>([]);
   const [isGeneratingPractice, setIsGeneratingPractice] = useState(false);
   const [submittedCount, setSubmittedCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [showAutoGradeButton, setShowAutoGradeButton] = useState(true);
-  const [showPracticeArea, setShowPracticeArea] = useState(false);
   // 班级专项练习相关状态
   const [showClassPracticeModal, setShowClassPracticeModal] = useState(false);
   const [classPracticeProblems, setClassPracticeProblems] = useState<any[]>([]);
   const [isGeneratingClassPractice, setIsGeneratingClassPractice] = useState(false);
+  // 流式输出相关状态
+  const [streamingText, setStreamingText] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
 
   // 模拟数据加载
   useEffect(() => {
@@ -233,41 +234,66 @@ export default function AssignmentProgressDetail() {
   };
 
     // 处理自动生成批改
-  const handleAutoGenerateGrade = () => {
+  const handleAutoGenerateGrade = async () => {
     if (!currentAssignment) {
       toast.error('请选择作业');
       return;
     }
     
-    // 显示加载状态
-    setIsSubmitting(true);
+    // 检查是否有作业附件
+    if (!currentAssignment.attachments || currentAssignment.attachments.length === 0) {
+      toast.error('该学生未上传作业附件');
+      return;
+    }
     
-    // 模拟批改延迟
-    setTimeout(() => {
-      // 生成随机分数 (80-100之间)
-      const randomScore = Math.floor(Math.random() * 21) + 80;
-      setScore(randomScore.toString());
+    // 获取第一个图片附件
+    const imageAttachment = currentAssignment.attachments.find(att => att.type === 'image');
+    if (!imageAttachment) {
+      toast.error('未找到作业图片');
+      return;
+    }
+    
+    try {
+      // 显示加载状态
+      setIsSubmitting(true);
+      setIsStreaming(true);
+      setStreamingText('');
       
-      // 根据分数生成不同的评语
-      let generatedComment = '';
-      if (randomScore >= 95) {
-        generatedComment = "非常优秀！对知识点掌握得极为扎实，解题思路清晰，步骤完整，答案准确。继续保持！";
-      } else if (randomScore >= 90) {
-        generatedComment = "优秀！对知识点掌握扎实，解题思路清晰，步骤完整，答案准确。继续保持！";
-      } else if (randomScore >= 85) {
-        generatedComment = "良好！知识点掌握较为扎实，解题思路正确，有少量细节问题需要注意。继续努力！";
-      } else {
-        generatedComment = "整体表现不错，知识点基本掌握，但在一些细节问题上还需要加强。建议多做一些相关练习，巩固对知识点的理解和应用能力。继续加油！";
-      }
+      toast.info('🤖 正在连接 AI 批改系统...', {
+        duration: 2000,
+      });
       
-      setComment(generatedComment);
+      // 调用 Coze API 进行批改（流式输出）
+      const result = await gradeAssignmentWithStream(
+        imageAttachment.url,
+        (chunk) => {
+          // 流式输出回调 - 实时显示批改过程
+          setStreamingText(prev => prev + chunk);
+        }
+      );
+      
+      // 批改完成
+      setIsStreaming(false);
+      // 直接显示 AI 返回的完整文本
+      setComment(result.comment);
       setIsSubmitting(false);
       setShowAutoGradeButton(false); // 自动批改完成后隐藏按钮
-      toast.success('已自动生成批改详情和得分', {
+      
+      toast.success('✅ AI 批改完成！', {
         duration: 3000,
         position: 'top-right'
       });
-    }, 1500);
+    } catch (error) {
+      console.error('自动批改失败:', error);
+      setIsSubmitting(false);
+      setIsStreaming(false);
+      setStreamingText('');
+      
+      toast.error('❌ 批改失败，请稍后重试', {
+        description: error instanceof Error ? error.message : '未知错误',
+        duration: 4000,
+      });
+    }
   }
 
   // 处理生成专项练习
@@ -367,19 +393,14 @@ export default function AssignmentProgressDetail() {
     }, 1500);
   }
 
-  // 处理关闭专项练习显示
-  const handleClosePracticeArea = () => {
-    setPracticeProblems([]);
-    setShowPracticeArea(false);
-  };
-  
   // 重置批改状态
   const handleResetGrading = () => {
     setShowAutoGradeButton(true);
-    setShowPracticeArea(false);
     setComment('');
     setScore('');
     setPracticeProblems([]);
+    setStreamingText('');
+    setIsStreaming(false);
   };
 
   // 处理生成班级专项练习
@@ -532,6 +553,76 @@ export default function AssignmentProgressDetail() {
     navigate(`/teacher/assignments/detail/${assignmentId}?studentId=${studentAssignmentId}`);
   };
 
+  // 格式化批改文本 - 将文本转换为 HTML
+  const formatGradingText = (text: string): string => {
+    let html = text;
+    
+    // 1. 转换 Markdown 表格
+    const tableRegex = /\|(.+)\|\s*\n\|[-:\s|]+\|\s*\n((?:\|.+\|\s*\n?)+)/g;
+    html = html.replace(tableRegex, (match) => {
+      const lines = match.trim().split('\n');
+      if (lines.length < 3) return match;
+      
+      const headers = lines[0].split('|').filter(cell => cell.trim()).map(cell => cell.trim());
+      const rows = lines.slice(2).map(line => 
+        line.split('|').filter(cell => cell.trim()).map(cell => cell.trim())
+      );
+      
+      let tableHtml = '<div class="overflow-x-auto my-4"><table class="min-w-full border-collapse border border-gray-300 dark:border-gray-600">';
+      
+      // 表头
+      tableHtml += '<thead class="bg-blue-50 dark:bg-blue-900/30"><tr>';
+      headers.forEach(header => {
+        tableHtml += `<th class="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left font-semibold text-gray-800 dark:text-gray-100">${header}</th>`;
+      });
+      tableHtml += '</tr></thead>';
+      
+      // 表体
+      tableHtml += '<tbody>';
+      rows.forEach((row, idx) => {
+        tableHtml += `<tr class="${idx % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700/50'}">`;
+        row.forEach(cell => {
+          tableHtml += `<td class="border border-gray-300 dark:border-gray-600 px-4 py-2 text-gray-700 dark:text-gray-300">${cell}</td>`;
+        });
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</tbody></table></div>';
+      
+      return tableHtml;
+    });
+    
+    // 2. 转换标题（#### -> h4, ### -> h3, ## -> h2）
+    html = html.replace(/^####\s+(.+)$/gm, '<h4 class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-4 mb-2 border-l-4 border-blue-500 pl-3">$1</h4>');
+    html = html.replace(/^###\s+(.+)$/gm, '<h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mt-5 mb-3 border-l-4 border-green-500 pl-3">$1</h3>');
+    html = html.replace(/^##\s+(.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-6 mb-4 border-l-4 border-purple-500 pl-3">$1</h2>');
+    
+    // 3. 转换粗体 **文本**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded">$1</strong>');
+    
+    // 4. 转换数字列表
+    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 text-white text-sm font-bold mr-3 flex-shrink-0 shadow-sm">$1</span><span class="flex-1 pt-1">$2</span></div>');
+    
+    // 5. 转换无序列表
+    html = html.replace(/^[-•]\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="text-green-600 dark:text-green-400 mr-3 text-lg">●</span><span class="flex-1 pt-0.5">$1</span></div>');
+    
+    // 6. 高亮数学表达式
+    // x = 24 这样的等式
+    html = html.replace(/([^a-zA-Z>])([xyz]\s*=\s*[-\d.\/]+)([^a-zA-Z<]|$)/g, '$1<span class="inline-block px-3 py-1 bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/50 dark:to-indigo-900/50 text-blue-900 dark:text-blue-100 rounded-md font-mono text-base font-semibold border border-blue-200 dark:border-blue-800 shadow-sm">$2</span>$3');
+    
+    // 7. 高亮分数和数学符号
+    html = html.replace(/(<sup>[^<]+<\/sup>⁄<sub>[^<]+<\/sub>)/g, '<span class="inline-block px-2 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-900 dark:text-purple-100 rounded border border-purple-200 dark:border-purple-800 font-medium mx-0.5">$1</span>');
+    
+    // 8. 转换段落（保持空行分隔）
+    const paragraphs = html.split(/\n\n+/);
+    html = paragraphs.map(para => {
+      if (para.trim().startsWith('<')) return para; // 已经是HTML标签
+      if (para.trim() === '') return '';
+      return `<p class="my-3 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`;
+    }).join('\n');
+    
+    return html;
+  };
+
   // 过滤显示的学生作业
   const filteredAssignments = activeTab === 'pending' 
     ? studentAssignments.filter(a => a.status === 'submitted') 
@@ -638,7 +729,7 @@ export default function AssignmentProgressDetail() {
                   <div className="mt-6">
                     <h4 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">参考附件</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {assignmentInfo.attachments.map((attachment, index) => (
+                      {assignmentInfo.attachments.map((attachment: any, index: number) => (
                         <div 
                           key={index}
                           className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -965,73 +1056,87 @@ export default function AssignmentProgressDetail() {
                    <div className="my-6 flex justify-center">
                     <button
                       onClick={handleAutoGenerateGrade}
-                      disabled={isSaving || isSubmitting}
-                      className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-base flex items-center justify-center max-w-xs"
+                      disabled={isSubmitting}
+                      className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg transition-all duration-300 text-base flex items-center justify-center max-w-xs shadow-lg hover:shadow-xl transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <i className="fa-solid fa-magic mr-3 text-xl"></i>
-                      自动批改
-                    </button>
-                  </div>
-                )}
-              
-              {/* 批改结果显示区域 */}
-               {(score || comment) && (
-                <div className="bg-gray-50 dark:bg-gray-700/50 p-6 rounded-lg border border-gray-200 dark:border-gray-600">
-                  <h4 className="text-lg font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
-                    <i className="fa-solid fa-check-circle text-green-600 dark:text-green-400 mr-2"></i>
-                    批改结果
-                  </h4>
-                  
-                  {/* 得分显示 */}
-                  {score && (
-                    <div className="mb-4">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">得分</p>
-                      <p className="text-3xl font-bold text-green-600 dark:text-green-400">{score}</p>
-                    </div>
-                  )}
-                  
-                  {/* 评语显示 */}
-                  {comment && (
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">老师评语</p>
-                      <p className="text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-4 rounded-lg border-l-4 border-blue-500">
-                        {comment}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* 生成专项练习按钮 */}
-                   <div className="mt-6 flex justify-center">
-                    <button
-                      onClick={handleGeneratePractice}
-                      disabled={isGeneratingPractice || !score || practiceProblems.length > 0}
-                      className="px-8 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg transition-all duration-300 flex items-center justify-center shadow-lg hover:shadow-xl transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 max-w-xs"
-                    >
-                      {isGeneratingPractice ? (
+                      {isSubmitting ? (
                         <>
-                          <i className="fa-solid fa-spinner fa-spin mr-2"></i>
-                          生成中...
-                        </>
-                      ) : practiceProblems.length > 0 ? (
-                        <>
-                          <i className="fa-solid fa-check-circle mr-2"></i>
-                          专项练习已生成
+                          <i className="fa-solid fa-spinner fa-spin mr-3 text-xl"></i>
+                          AI 批改中...
                         </>
                       ) : (
                         <>
-                          <i className="fa-solid fa-lightbulb mr-2"></i>
-                          生成专项练习
+                          <i className="fa-solid fa-wand-magic-sparkles mr-3 text-xl"></i>
+                          AI 智能批改
                         </>
                       )}
                     </button>
                   </div>
+                )}
+              
+              {/* 流式输出显示区域 */}
+              {isStreaming && (
+                <div className="my-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-6 rounded-xl border border-blue-200 dark:border-blue-800/50 shadow-inner animate-fadeIn">
+                  <div className="flex items-center mb-4">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+                      <div className="w-3 h-3 bg-indigo-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                      <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                    </div>
+                    <span className="ml-3 text-sm font-medium text-blue-700 dark:text-blue-300">
+                      🤖 AI 正在分析作业并生成批改意见...
+                    </span>
+                  </div>
+                  <div className="bg-white dark:bg-gray-800 p-5 rounded-lg border border-blue-100 dark:border-blue-900/50 shadow-sm max-h-96 overflow-y-auto">
+                    {streamingText ? (
+                      <div className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap text-sm leading-relaxed">
+                        {streamingText}
+                        <span className="inline-block w-2 h-5 bg-blue-500 ml-1 animate-pulse"></span>
+                      </div>
+                    ) : (
+                      <div className="text-gray-400 dark:text-gray-500 text-sm italic">
+                        等待 AI 响应...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* 批改结果显示区域 - 美化显示 AI 返回的文本 */}
+               {comment && !isStreaming && (
+                <div className="my-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 p-6 rounded-xl border border-green-200 dark:border-green-800/50 shadow-lg animate-fadeIn">
+                  <div className="flex items-center mb-5">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center mr-3 shadow-md">
+                      <i className="fa-solid fa-robot text-white text-xl"></i>
+                    </div>
+                    <div>
+                      <h4 className="text-xl font-bold text-gray-800 dark:text-white">
+                        AI 批改结果
+                      </h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">智能分析完成</p>
+                    </div>
+                  </div>
                   
-                  {/* 专项练习说明 */}
-                  <div className="mt-4 text-center">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      <i className="fa-solid fa-circle-info mr-1"></i>
-                      系统将根据学生答题情况，智能生成针对性的练习题
-                    </p>
+                  {/* 美化显示 AI 返回的文本 */}
+                  <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-green-100 dark:border-green-900/50 shadow-inner max-h-[600px] overflow-y-auto">
+                    <div 
+                      className="formatted-content text-gray-700 dark:text-gray-300 leading-loose text-base"
+                      dangerouslySetInnerHTML={{ __html: formatGradingText(comment) }}
+                    />
+                  </div>
+                  
+                  {/* 操作按钮 */}
+                  <div className="mt-6 flex justify-center gap-4">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(comment);
+                        toast.success('批改内容已复制到剪贴板');
+                      }}
+                      className="px-6 py-2.5 bg-white dark:bg-gray-700 border-2 border-green-400 dark:border-green-600 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/30 transition-all shadow-sm hover:shadow-md flex items-center font-medium"
+                    >
+                      <i className="fa-solid fa-copy mr-2"></i>
+                      复制批改内容
+                    </button>
                   </div>
                 </div>
               )}
@@ -1105,7 +1210,7 @@ export default function AssignmentProgressDetail() {
              <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-center">
               <button
                 onClick={handleSubmitGrade}
-                disabled={isSaving || isSubmitting || !score}
+                disabled={isSubmitting || !score}
                 className="px-8 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 transition-colors max-w-xs"
               >
                 {isSubmitting ? (

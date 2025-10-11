@@ -42,7 +42,7 @@ const getStudentAssignment = (assignmentId: number, studentId: number): StudentA
         { 
           id: "att-1-1", 
           name: "作业提交-张三.jpg", 
-          url: "/statics/image/706c26f526c6c06d39eed532d1b1d163.jpg", 
+          url: "http://a.gptpro.cn/local_storage/opencoze/tos-cn-i-v4nquku3lp/e327feee-ad14-45d6-964a-5fdedb007e35.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20251011%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20251011T031920Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ea7353b12946736b2648c6243f7fc5f84dd8016f0452e16327ee31ef0cf4a333&x-wf-file_name=706c26f526c6c06d39eed532d1b1d163.jpg", 
           type: "image" 
         }
       ]
@@ -62,7 +62,7 @@ const getStudentAssignment = (assignmentId: number, studentId: number): StudentA
         { 
           id: "att-2-1", 
           name: "作业提交-李四.jpg", 
-          url: "/statics/image/706c26f526c6c06d39eed532d1b1d163.jpg", 
+          url: "http://a.gptpro.cn/local_storage/opencoze/tos-cn-i-v4nquku3lp/e327feee-ad14-45d6-964a-5fdedb007e35.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20251011%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20251011T031920Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ea7353b12946736b2648c6243f7fc5f84dd8016f0452e16327ee31ef0cf4a333&x-wf-file_name=706c26f526c6c06d39eed532d1b1d163.jpg", 
           type: "image" 
         }
       ]
