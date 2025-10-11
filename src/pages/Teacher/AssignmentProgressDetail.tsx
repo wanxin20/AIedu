@@ -80,7 +80,7 @@ const generateStudentAssignments = (assignmentId: number, assignmentName: string
         { 
           id: `att-${student.id}-1`, 
           name: `作业提交-${student.name}.jpg`, 
-          url: `https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20Homework%20Submission%20for%20${student.name}&sign=8c7a4e5d3f2b1c9a0d8f7e6d5c4b3a2a`, 
+          url: "/statics/image/706c26f526c6c06d39eed532d1b1d163.jpg", 
           type: "image" 
         }
       ];

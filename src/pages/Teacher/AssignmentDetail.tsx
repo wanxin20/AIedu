@@ -42,7 +42,7 @@ const getStudentAssignment = (assignmentId: number, studentId: number): StudentA
         { 
           id: "att-1-1", 
           name: "作业提交-张三.jpg", 
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20Homework%20Submission%20for%20Zhang%20San&sign=7c852b19a05308244a0426a82abffc3d", 
+          url: "/statics/image/706c26f526c6c06d39eed532d1b1d163.jpg", 
           type: "image" 
         }
       ]
@@ -62,7 +62,7 @@ const getStudentAssignment = (assignmentId: number, studentId: number): StudentA
         { 
           id: "att-2-1", 
           name: "作业提交-李四.jpg", 
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20Homework%20Submission%20for%20Li%20Si&sign=cc8abdd1f17dffe43da68fa2f635137d", 
+          url: "/statics/image/706c26f526c6c06d39eed532d1b1d163.jpg", 
           type: "image" 
         }
       ]
