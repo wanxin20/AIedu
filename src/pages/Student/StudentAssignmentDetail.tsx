@@ -384,14 +384,15 @@ export default function StudentAssignmentDetail() {
                                     <span className="hidden md:inline text-sm font-medium">{user?.name || "学生"}</span>
                                     <i className="fa-solid fa-chevron-down text-xs text-gray-500"></i>
                                 </button>
-                                <div
-                                    className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 z-50 hidden group-hover:block border border-gray-200 dark:border-gray-700">
-                                    <button
-                                        onClick={logout}
-                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center">
-                                        <i className="fa-solid fa-sign-out-alt mr-2 text-gray-500"></i>
-                                        <span>退出登录</span>
-                                    </button>
+                                <div className="absolute right-0 mt-0 pt-2 w-48 z-50 hidden group-hover:block">
+                                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 border border-gray-200 dark:border-gray-700">
+                                        <button
+                                            onClick={logout}
+                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center">
+                                            <i className="fa-solid fa-sign-out-alt mr-2 text-gray-500"></i>
+                                            <span>退出登录</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
