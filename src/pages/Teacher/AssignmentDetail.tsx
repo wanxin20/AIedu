@@ -128,6 +128,10 @@ export default function AssignmentDetail() {
   const [assignmentInfo, setAssignmentInfo] = useState<any>(null);
   const [studentAssignment, setStudentAssignment] = useState<StudentAssignment | null>(null);
   
+  // 图片预览相关状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [imageScale, setImageScale] = useState(1);
+  
   // 模拟数据加载
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -150,9 +154,48 @@ export default function AssignmentDetail() {
     }
   }, [user, navigate]);
   
+  // 键盘事件监听（ESC关闭预览）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && previewImage) {
+        handleClosePreview();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewImage]);
+  
   // 处理返回列表
   const handleBackToList = () => {
     navigate(`/teacher/assignments/progress/${assignmentId}`);
+  };
+  
+  // 打开图片预览
+  const handleImageClick = (imageUrl: string) => {
+    setPreviewImage(imageUrl);
+    setImageScale(1);
+  };
+  
+  // 关闭图片预览
+  const handleClosePreview = () => {
+    setPreviewImage(null);
+    setImageScale(1);
+  };
+  
+  // 放大图片
+  const handleZoomIn = () => {
+    setImageScale(prev => Math.min(prev + 0.25, 3));
+  };
+  
+  // 缩小图片
+  const handleZoomOut = () => {
+    setImageScale(prev => Math.max(prev - 0.25, 0.5));
+  };
+  
+  // 重置缩放
+  const handleResetZoom = () => {
+    setImageScale(1);
   };
   
   // 如果找不到学生作业
@@ -442,7 +485,7 @@ export default function AssignmentDetail() {
                 <div className="mt-6">
                   <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-3">参考附件</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {assignmentInfo.attachments.map((attachment, index) => (
+                    {assignmentInfo.attachments.map((attachment: any, index: number) => (
                       <div 
                         key={index}
                         className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -473,13 +516,24 @@ export default function AssignmentDetail() {
                     <div 
                       key={attachment.id}
                       className="relative group cursor-pointer overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700"
+                      onClick={() => attachment.type === "image" && handleImageClick(attachment.url)}
                     >
                       {attachment.type === "image" ? (
-                        <img
-                          src={attachment.url}
-                          alt={attachment.name}
-                          className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105" 
-                        />
+                        <>
+                          <img
+                            src={attachment.url}
+                            alt={attachment.name}
+                            className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105" 
+                          />
+                          {/* 放大提示 */}
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-all duration-300">
+                            <div className="transform scale-0 group-hover:scale-100 transition-transform duration-300">
+                              <div className="bg-white dark:bg-gray-800 rounded-full p-3 shadow-lg">
+                                <i className="fa-solid fa-search-plus text-gray-700 dark:text-gray-300 text-xl"></i>
+                              </div>
+                            </div>
+                          </div>
+                        </>
                       ) : (
                         <div className="w-full h-48 flex items-center justify-center bg-gray-200 dark:bg-gray-600">
                           <i className="fa-solid fa-file text-5xl text-gray-400"></i>
@@ -514,6 +568,83 @@ export default function AssignmentDetail() {
           </div>
         ) : null}
       </main>
+      
+      {/* 图片预览模态框 */}
+      {previewImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm animate-fadeIn"
+          onClick={handleClosePreview}
+        >
+          <div className="relative w-full h-full flex items-center justify-center p-4">
+            {/* 关闭按钮 */}
+            <button
+              onClick={handleClosePreview}
+              className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all hover:scale-110"
+              title="关闭 (ESC)"
+            >
+              <i className="fa-solid fa-times text-xl"></i>
+            </button>
+            
+            {/* 缩放控制按钮 */}
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10 flex items-center space-x-2 bg-white/10 backdrop-blur-md rounded-full px-4 py-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleZoomOut();
+                }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all hover:scale-110"
+                title="缩小"
+                disabled={imageScale <= 0.5}
+              >
+                <i className="fa-solid fa-minus"></i>
+              </button>
+              
+              <span className="text-white font-medium px-2 min-w-[60px] text-center">
+                {Math.round(imageScale * 100)}%
+              </span>
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleZoomIn();
+                }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all hover:scale-110"
+                title="放大"
+                disabled={imageScale >= 3}
+              >
+                <i className="fa-solid fa-plus"></i>
+              </button>
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleResetZoom();
+                }}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all hover:scale-110 ml-2"
+                title="重置"
+              >
+                <i className="fa-solid fa-arrow-rotate-left"></i>
+              </button>
+            </div>
+            
+            {/* 图片容器 */}
+            <div 
+              className="max-w-full max-h-full overflow-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={previewImage}
+                alt="预览"
+                className="max-w-none transition-transform duration-200"
+                style={{ 
+                  transform: `scale(${imageScale})`,
+                  transformOrigin: 'center center'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       
       <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-6 mt-12">
         <div className="container mx-auto px-4 text-center text-gray-500 dark:text-gray-400 text-sm">

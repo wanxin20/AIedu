@@ -2,38 +2,6 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 
-import {
-    PieChart,
-    Pie,
-    Cell,
-    ResponsiveContainer,
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-} from "recharts";
-
-import { toast } from "sonner";
-
-const learningProgressData = [{
-    name: "数学",
-    进度: 75
-}, {
-    name: "语文",
-    进度: 60
-}, {
-    name: "英语",
-    进度: 85
-}, {
-    name: "物理",
-    进度: 45
-}, {
-    name: "化学",
-    进度: 55
-}];
-
 
 
 const pendingAssignments = [{
@@ -119,18 +87,20 @@ export default function StudentDashboard() {
         }
     }, [user, navigate]);
 
-    const handleSubmitAssignment = id => {
+    const handleSubmitAssignment = (id: number) => {
         navigate(`/student/assignments/submit/${id}`);
     };
 
-    const handleAskQuestion = e => {
+    const handleAskQuestion = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (!question.trim())
             return;
 
-        toast.success("问题已提交，等待老师解答");
-        setQuestion("");
+        // 跳转到学习助手页面并传递问题
+        navigate("/student/learning-assistant", {
+            state: { question: question.trim() }
+        });
     };
 
     return (
@@ -258,15 +228,24 @@ export default function StudentDashboard() {
                                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">常见问题</h4>
                                 <div className="space-y-2">
                                     <button
-                                        className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 py-1">
+                                        onClick={() => navigate("/student/learning-assistant", {
+                                            state: { question: "如何提高数学解题能力？" }
+                                        })}
+                                        className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 py-1 transition-colors">
                                         <i className="fa-solid fa-angle-right mr-2 text-xs"></i>如何提高数学解题能力？
                                                             </button>
                                     <button
-                                        className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 py-1">
+                                        onClick={() => navigate("/student/learning-assistant", {
+                                            state: { question: "英语语法学习有什么技巧？" }
+                                        })}
+                                        className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 py-1 transition-colors">
                                         <i className="fa-solid fa-angle-right mr-2 text-xs"></i>英语语法学习有什么技巧？
                                                             </button>
                                     <button
-                                        className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 py-1">
+                                        onClick={() => navigate("/student/learning-assistant", {
+                                            state: { question: "物理公式如何灵活应用？" }
+                                        })}
+                                        className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 py-1 transition-colors">
                                         <i className="fa-solid fa-angle-right mr-2 text-xs"></i>物理公式如何灵活应用？
                                                             </button>
                                 </div>

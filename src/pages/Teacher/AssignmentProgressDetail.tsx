@@ -1,4 +1,4 @@
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
@@ -190,6 +190,14 @@ export default function AssignmentProgressDetail() {
   // 流式输出相关状态
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const streamingEndRef = useRef<HTMLDivElement>(null);
+
+  // 自动滚动到流式输出底部
+  useEffect(() => {
+    if (isStreaming && streamingEndRef.current) {
+      streamingEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [streamingText, isStreaming]);
 
   // 模拟数据加载
   useEffect(() => {
@@ -557,6 +565,19 @@ export default function AssignmentProgressDetail() {
   const formatGradingText = (text: string): string => {
     let html = text;
     
+    // 0. 预处理：移除JSON和工具调用信息（额外保护层）
+    html = html.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
+      if (
+        match.includes('"msg_type"') || 
+        match.includes('"plugin') || 
+        match.includes('"tool') ||
+        match.includes('"from_module"')
+      ) {
+        return '';
+      }
+      return match;
+    });
+    
     // 1. 转换 Markdown 表格
     const tableRegex = /\|(.+)\|\s*\n\|[-:\s|]+\|\s*\n((?:\|.+\|\s*\n?)+)/g;
     html = html.replace(tableRegex, (match) => {
@@ -591,19 +612,26 @@ export default function AssignmentProgressDetail() {
       return tableHtml;
     });
     
-    // 2. 转换标题（#### -> h4, ### -> h3, ## -> h2）
+    // 2. 转换标题（##### -> h5, #### -> h4, ### -> h3, ## -> h2, # -> h1）
+    // 从最长的开始替换，避免误匹配
+    html = html.replace(/^#####\s+(.+)$/gm, '<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mt-3 mb-1 border-l-4 border-teal-500 pl-3 bg-teal-50 dark:bg-teal-900/20 py-1 rounded-r">$1</h5>');
     html = html.replace(/^####\s+(.+)$/gm, '<h4 class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-4 mb-2 border-l-4 border-blue-500 pl-3">$1</h4>');
     html = html.replace(/^###\s+(.+)$/gm, '<h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mt-5 mb-3 border-l-4 border-green-500 pl-3">$1</h3>');
     html = html.replace(/^##\s+(.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-6 mb-4 border-l-4 border-purple-500 pl-3">$1</h2>');
+    html = html.replace(/^#\s+(.+)$/gm, '<h1 class="text-2xl font-bold text-gray-900 dark:text-white mt-8 mb-5 border-l-4 border-red-500 pl-4">$1</h1>');
     
-    // 3. 转换粗体 **文本**
+    // 3. 转换粗体 **文本** 和 $\boldsymbol{文本}$
+    html = html.replace(/\$\\boldsymbol\{([^}]+)\}\$/g, '<strong class="font-bold text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded">$1</strong>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded">$1</strong>');
     
-    // 4. 转换数字列表
+    // 4. 转换数字列表（优化：区分带冒号和不带冒号的）
+    // 带冒号的作为小标题
+    html = html.replace(/^(\d+)\.\s+(.+?)[：:]\s*$/gm, '<div class="flex items-start my-3"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white text-sm font-bold mr-3 flex-shrink-0 shadow-sm">$1</span><span class="flex-1 pt-1 font-semibold text-gray-800 dark:text-gray-100">$2：</span></div>');
+    // 普通列表项
     html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 text-white text-sm font-bold mr-3 flex-shrink-0 shadow-sm">$1</span><span class="flex-1 pt-1">$2</span></div>');
     
-    // 5. 转换无序列表
-    html = html.replace(/^[-•]\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="text-green-600 dark:text-green-400 mr-3 text-lg">●</span><span class="flex-1 pt-0.5">$1</span></div>');
+    // 5. 转换无序列表（● - •）
+    html = html.replace(/^[●•-]\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="text-green-600 dark:text-green-400 mr-3 text-lg leading-7">●</span><span class="flex-1 pt-0.5">$1</span></div>');
     
     // 6. 高亮数学表达式
     // x = 24 这样的等式
@@ -615,10 +643,15 @@ export default function AssignmentProgressDetail() {
     // 8. 转换段落（保持空行分隔）
     const paragraphs = html.split(/\n\n+/);
     html = paragraphs.map(para => {
-      if (para.trim().startsWith('<')) return para; // 已经是HTML标签
-      if (para.trim() === '') return '';
+      const trimmed = para.trim();
+      if (!trimmed) return '';
+      if (trimmed.startsWith('<')) return para; // 已经是HTML标签
       return `<p class="my-3 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`;
-    }).join('\n');
+    }).filter(p => p).join('\n');
+    
+    // 9. 清理多余空白
+    html = html.replace(/\n{3,}/g, '\n\n');
+    html = html.trim();
     
     return html;
   };
@@ -1091,9 +1124,10 @@ export default function AssignmentProgressDetail() {
                   </div>
                   <div className="bg-white dark:bg-gray-800 p-5 rounded-lg border border-blue-100 dark:border-blue-900/50 shadow-sm max-h-96 overflow-y-auto">
                     {streamingText ? (
-                      <div className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap text-sm leading-relaxed">
-                        {streamingText}
-                        <span className="inline-block w-2 h-5 bg-blue-500 ml-1 animate-pulse"></span>
+                      <div className="formatted-content text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+                        <div dangerouslySetInnerHTML={{ __html: formatGradingText(streamingText) }} />
+                        <span className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse"></span>
+                        <div ref={streamingEndRef} />
                       </div>
                     ) : (
                       <div className="text-gray-400 dark:text-gray-500 text-sm italic">

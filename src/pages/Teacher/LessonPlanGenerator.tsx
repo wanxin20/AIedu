@@ -157,24 +157,30 @@ const MarkdownRenderer = ({ content }: { content: string }) => {
     let html = markdown;
     
     // 转换 ## 标题
-    html = html.replace(/^## \*\*(.+?)\*\*$/gm, '<h2 class="text-2xl font-bold text-gray-800 dark:text-white mt-8 mb-4 first:mt-0">$1</h2>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="text-2xl font-bold text-gray-800 dark:text-white mt-8 mb-4 first:mt-0">$1</h2>');
+    html = html.replace(/^## \*\*(.+?)\*\*$/gm, '<h2 class="text-2xl font-bold text-gray-800 dark:text-white mt-8 mb-0 first:mt-0">$1</h2>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="text-2xl font-bold text-gray-800 dark:text-white mt-8 mb-0 first:mt-0">$1</h2>');
     
     // 转换 ### 标题
-    html = html.replace(/^### \*\*(.+?)\*\*$/gm, '<h3 class="text-xl font-semibold text-gray-800 dark:text-white mt-6 mb-3">$1</h3>');
-    html = html.replace(/^### (.+)$/gm, '<h3 class="text-xl font-semibold text-gray-800 dark:text-white mt-6 mb-3">$1</h3>');
+    html = html.replace(/^### \*\*(.+?)\*\*$/gm, '<h3 class="text-xl font-semibold text-gray-800 dark:text-white mt-6 mb-0">$1</h3>');
+    html = html.replace(/^### (.+)$/gm, '<h3 class="text-xl font-semibold text-gray-800 dark:text-white mt-6 mb-0">$1</h3>');
     
     // 转换 #### 标题
-    html = html.replace(/^#### \*\*(.+?)\*\*$/gm, '<h4 class="text-lg font-medium text-gray-700 dark:text-gray-200 mt-4 mb-2">$1</h4>');
-    html = html.replace(/^#### (.+)$/gm, '<h4 class="text-lg font-medium text-gray-700 dark:text-gray-200 mt-4 mb-2">$1</h4>');
+    html = html.replace(/^#### \*\*(.+?)\*\*$/gm, '<h4 class="text-lg font-medium text-gray-700 dark:text-gray-200 mt-4 mb-0">$1</h4>');
+    html = html.replace(/^#### (.+)$/gm, '<h4 class="text-lg font-medium text-gray-700 dark:text-gray-200 mt-4 mb-0">$1</h4>');
     
-    // 转换粗体
+    // 转换单独成行的粗体（作为小标题使用，与上一行有间隔，与下一行无间隔）
+    html = html.replace(/^\*\*(.+?)\*\*$/gm, '<div class="font-semibold text-gray-900 dark:text-white mt-4 mb-0">$1</div>');
+    
+    // 转换行内粗体
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-gray-900 dark:text-white">$1</strong>');
     
     // 转换列表项
     html = html.replace(/^[-•·*]\s+(.+)$/gm, '<div class="flex items-start ml-4 mb-2"><span class="text-green-600 dark:text-green-400 mr-2">•</span><span class="text-gray-700 dark:text-gray-300">$1</span></div>');
     
-    // 转换数字列表
+    // 转换标题性质的数字列表（以冒号结尾，作为小标题，与上有间隔，与下无间隔）
+    html = html.replace(/^(\d+)\.\s+(.+?)[：:]\s*$/gm, '<div class="ml-4 font-semibold text-gray-900 dark:text-white mt-4 mb-0"><span class="text-green-600 dark:text-green-400">$1.</span> $2：</div>');
+    
+    // 转换普通数字列表（不以冒号结尾）
     html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="ml-4 text-gray-700 dark:text-gray-300 mb-2"><span class="font-medium text-green-600 dark:text-green-400">$1.</span> $2</div>');
     
     // 转换代码块中的内容（保留格式）

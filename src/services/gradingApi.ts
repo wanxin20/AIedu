@@ -155,25 +155,88 @@ function cleanAndFormatText(text: string): string {
   let cleaned = text;
   
   console.log('🔍 原始文本长度:', text.length);
+  console.log('🔍 原始文本前500字符:', text.substring(0, 500));
   
-  // 1. 移除 JSON 格式的数据和结尾信息
-  cleaned = cleaned.replace(/\{[^}]*"msg_type"[^}]*\}/g, '');
+  // 1. 移除 JSON 格式的数据
+  // 移除所有包含特定关键词的JSON对象
+  cleaned = cleaned.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
+    if (
+      match.includes('"msg_type"') || 
+      match.includes('"from_module"') ||
+      match.includes('"plugin') || 
+      match.includes('"tool') ||
+      match.includes('"finish_reason"')
+    ) {
+      return '';
+    }
+    return match;
+  });
+  
+  // 移除残留的JSON片段
+  cleaned = cleaned.replace(/^[,\s]*["\{].*?["\}][,\s]*/gm, '');
   cleaned = cleaned.replace(/","from_module"[^}]*$/g, '');
-  cleaned = cleaned.replace(/\}[^}]*"from_module"[^}]*$/g, '');
   
-  // 2. 检测并移除重复内容（更智能的检测）
+  // 2. 检测并移除重复内容（使用相似度算法，降低去重阈值）
   if (cleaned.length > 300) {
-    // 查找重复的段落标记
     const paragraphs = cleaned.split(/\n{2,}/);
-    const uniqueParagraphs = [];
-    const seen = new Set();
+    const uniqueParagraphs: string[] = [];
+    const seenContent = new Set<string>();
+    const seenSimilarContent: string[] = [];
+    
+    // 计算相似度
+    const calculateSimilarity = (str1: string, str2: string): number => {
+      const len1 = str1.length;
+      const len2 = str2.length;
+      if (len1 === 0 || len2 === 0) return 0;
+      
+      const shorter = len1 < len2 ? str1 : str2;
+      const longer = len1 < len2 ? str2 : str1;
+      
+      let matchCount = 0;
+      const shortLen = shorter.length;
+      
+      for (let i = 0; i < shortLen; i += 10) {
+        const chunk = shorter.substring(i, Math.min(i + 20, shortLen));
+        if (longer.includes(chunk)) {
+          matchCount += chunk.length;
+        }
+      }
+      
+      return matchCount / shortLen;
+    };
     
     for (const para of paragraphs) {
-      const key = para.trim().substring(0, 50); // 使用前50字符作为去重键
-      if (!seen.has(key) || para.trim().length < 50) {
-        uniqueParagraphs.push(para);
-        seen.add(key);
+      const trimmed = para.trim();
+      if (!trimmed) continue;
+      
+      // 使用较长的键（150字符）来更准确地去重
+      const normalizedPara = trimmed.replace(/\s+/g, ' ');
+      const shortKey = normalizedPara.substring(0, 150);
+      
+      // 完全相同的内容检查
+      if (seenContent.has(shortKey)) {
+        console.log('⚠️ 检测到完全重复段落，已跳过');
+        continue;
       }
+      
+      // 相似度检查 - 只有 95% 以上相似度才视为重复（提高阈值，减少误判）
+      let isSimilar = false;
+      for (const seenPara of seenSimilarContent) {
+        const similarity = calculateSimilarity(normalizedPara, seenPara);
+        if (similarity > 0.95) {
+          isSimilar = true;
+          console.log('⚠️ 检测到高度相似段落（相似度: ' + (similarity * 100).toFixed(1) + '%），已跳过');
+          break;
+        }
+      }
+      
+      if (isSimilar) {
+        continue;
+      }
+      
+      seenContent.add(shortKey);
+      seenSimilarContent.push(normalizedPara);
+      uniqueParagraphs.push(trimmed);
     }
     
     cleaned = uniqueParagraphs.join('\n\n');

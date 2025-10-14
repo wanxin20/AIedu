@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import { chatWithAssistant } from '@/services/learningAssistantApi';
@@ -10,6 +10,7 @@ interface Message {
   content: string;
   sender: 'user' | 'assistant';
   timestamp: Date;
+  suggestedQuestions?: string[]; // AI建议的快捷问题
 }
 
 // 定义会话接口
@@ -24,6 +25,7 @@ interface ChatSession {
 
 export default function StudentLearningAssistant() {
   const { user, logout } = useContext(AuthContext);
+  const location = useLocation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -35,6 +37,7 @@ export default function StudentLearningAssistant() {
   const [streamingText, setStreamingText] = useState('');
   const [currentConversationId, setCurrentConversationId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [autoSendTriggered, setAutoSendTriggered] = useState(false);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -72,6 +75,28 @@ export default function StudentLearningAssistant() {
       window.removeEventListener('resize', handleResize);
     };
   }, []);
+
+  // 处理从其他页面传递过来的问题（如从 Dashboard）
+  useEffect(() => {
+    const state = location.state as { question?: string } | null;
+    
+    if (state?.question && !autoSendTriggered && !isTyping && messages.length > 0) {
+      setAutoSendTriggered(true);
+      
+      // 等待欢迎消息渲染完成后自动发送
+      const timer = setTimeout(() => {
+        handleSendMessage(state.question);
+        
+        // 显示提示
+        toast.success('问题已自动发送给学习助手', {
+          duration: 2000,
+        });
+      }, 800);
+      
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, autoSendTriggered, isTyping, messages.length]);
 
   // 保存当前对话
   const saveCurrentChat = () => {
@@ -169,7 +194,14 @@ export default function StudentLearningAssistant() {
       if (session) {
         setMessages(session.messages);
         setCurrentSessionId(session.id);
-        setCurrentConversationId(session.conversationId || '');
+        const loadedConversationId = session.conversationId || '';
+        setCurrentConversationId(loadedConversationId);
+        
+        console.log('📂 加载历史会话');
+        console.log('   会话列表ID:', sessionId);
+        console.log('   Coze会话ID:', loadedConversationId || '无（这是旧会话，没有保存会话ID）');
+        console.log('   消息数量:', session.messages.length);
+        console.log('   ⚠️ 注意:', loadedConversationId ? '可以继续对话并保持上下文' : '旧会话没有会话ID，继续对话将创建新的上下文');
         
         // 在移动设备上，加载会话后关闭侧边栏
         if (window.innerWidth < 768) {
@@ -177,13 +209,13 @@ export default function StudentLearningAssistant() {
         }
       }
     } catch (error) {
-      console.error('加载会话失败:', error);
+      console.error('❌ 加载会话失败:', error);
       toast.error('加载会话失败，请重试');
     }
   };
 
   // 创建新会话
-  const createNewSession = () => {
+  const createNewSession = async () => {
     const welcomeMessage: Message = {
       id: `welcome-${Date.now()}`,
       content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
@@ -193,7 +225,11 @@ export default function StudentLearningAssistant() {
     
     setMessages([welcomeMessage]);
     setCurrentSessionId(null);
-    setCurrentConversationId('');
+    setCurrentConversationId(''); // 清空会话ID，下次对话时会自动创建新的
+    
+    console.log('🆕 创建新会话');
+    console.log('   已清空会话ID，下次发送消息时将创建新的Coze会话');
+    console.log('   上下文将重新开始');
     
     // 在移动设备上，创建新会话后关闭侧边栏
     if (window.innerWidth < 768) {
@@ -302,45 +338,65 @@ export default function StudentLearningAssistant() {
     localStorage.setItem('learningAssistantChatHistory', JSON.stringify(mockSessions));
   };
 
-  // 发送消息
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isTyping) return;
+  // 发送消息（支持自动发送传入的问题）
+  const handleSendMessage = async (autoQuestion?: string) => {
+    const messageContent = autoQuestion || inputValue.trim();
+    
+    if (!messageContent || isTyping) return;
     
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
-      content: inputValue.trim(),
+      content: messageContent,
       sender: 'user',
       timestamp: new Date(),
     };
     
-    const userMessageContent = inputValue.trim();
+    const userMessageContent = messageContent;
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsTyping(true);
     setStreamingText('');
     
+    const hasConversationId = !!currentConversationId;
+    console.log('📤 发送消息');
+    console.log('   当前会话ID:', currentConversationId || '无');
+    console.log('   会话状态:', hasConversationId ? '继续现有会话' : '将创建新会话');
+    console.log('   当前会话列表ID:', currentSessionId || '无');
+    
     try {
-      // 调用真实的 AI 助手 API
+      // 调用真实的 AI 助手 API，传递会话ID以保持上下文
       const result = await chatWithAssistant(
         userMessageContent,
         (chunk) => {
           // 流式输出回调 - 实时显示 AI 回复
           setStreamingText(prev => prev + chunk);
         },
-        currentConversationId // 传递会话ID以保持上下文
+        currentConversationId || undefined // 传递会话ID，如果为空则创建新会话
       );
       
-      // 更新会话ID
+      // 更新会话ID - 确保后续对话使用同一个会话
       if (result.conversationId) {
+        if (currentConversationId !== result.conversationId) {
+          console.log('📌 会话ID变更:', currentConversationId || '无', '->', result.conversationId);
+          console.log('   变更原因:', !currentConversationId ? '新会话创建' : 'API返回了不同的ID');
+        } else {
+          console.log('✅ 会话ID保持一致:', result.conversationId);
+        }
         setCurrentConversationId(result.conversationId);
+      } else {
+        console.warn('⚠️ 警告：API 未返回会话ID，上下文可能丢失');
       }
+      
+      // 提取建议问题
+      const { cleanedContent, questions } = extractSuggestedQuestions(result.response);
       
       // AI 回复完成
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
-        content: result.response,
+        content: cleanedContent || result.response, // 使用清理后的内容
         sender: 'assistant',
         timestamp: new Date(),
+        suggestedQuestions: questions.length > 0 ? questions : undefined,
       };
       
       setMessages(prev => [...prev, assistantMessage]);
@@ -348,7 +404,7 @@ export default function StudentLearningAssistant() {
       setStreamingText('');
       
     } catch (error) {
-      console.error('发送消息失败:', error);
+      console.error('❌ 发送消息失败:', error);
       setIsTyping(false);
       setStreamingText('');
       
@@ -376,14 +432,106 @@ export default function StudentLearningAssistant() {
     }
   };
 
+  // 提取建议问题 - 从内容末尾提取AI建议的快捷问题
+  const extractSuggestedQuestions = (content: string): { cleanedContent: string; questions: string[] } => {
+    // 查找末尾连续的建议性问题（通常以动词开头，如"分享"、"推荐"、"制定"等）
+    const suggestionPatterns = [
+      // 匹配末尾连续的建议（不带标点分隔的）
+      /([分享推荐制定查看了解学习掌握获取](一[份些]|更多)?[\u4e00-\u9fa5]{4,30}[？?吗呢]?)([分享推荐制定查看了解学习掌握](一[份些]|更多)?[\u4e00-\u9fa5]{4,30}[？?吗呢]?)([分享推荐制定查看了解学习掌握](一[份些]|更多)?[\u4e00-\u9fa5]{4,30}[？?吗呢]?)?$/,
+      // 匹配末尾的"你可以..."建议
+      /(你可以|你还可以|建议你|推荐)[:：]?[\s\S]*$/,
+    ];
+    
+    let cleanedContent = content;
+    const questions: string[] = [];
+    
+    // 尝试匹配末尾的建议
+    for (const pattern of suggestionPatterns) {
+      const match = cleanedContent.match(pattern);
+      if (match) {
+        const suggestionText = match[0];
+        
+        // 使用智能分词提取独立的问题
+        // 匹配以动词开头的完整句子
+        const questionMatches = suggestionText.matchAll(/([分享推荐制定查看了解学习掌握帮助获取][\u4e00-\u9fa5]{4,40})/g);
+        
+        for (const qMatch of questionMatches) {
+          const question = qMatch[1].trim();
+          if (question.length >= 5 && question.length <= 50) {
+            // 确保问题以问号结尾
+            questions.push(question.endsWith('？') || question.endsWith('?') ? question : question + '？');
+          }
+        }
+        
+        // 从内容中移除建议部分
+        if (questions.length > 0) {
+          cleanedContent = cleanedContent.substring(0, match.index).trim();
+        }
+        
+        break;
+      }
+    }
+    
+    return { cleanedContent, questions };
+  };
+
   // 格式化消息内容 - 将 Markdown 转换为 HTML
   const formatMessageContent = (content: string): string => {
     let html = content;
     
-    // 1. 转换标题
-    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-bold text-gray-900 dark:text-white mt-4 mb-2 border-l-4 border-blue-500 pl-3">$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-5 mb-3 border-l-4 border-indigo-500 pl-3">$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-gray-900 dark:text-white mt-6 mb-4 border-l-4 border-purple-500 pl-3">$1</h1>');
+    // 0. 预处理：移除所有JSON格式内容和工具调用信息
+    // 移除所有包含特定关键词的JSON对象（包括嵌套的）
+    html = html.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
+      // 如果JSON包含plugin、tool、api、log_id等关键词，移除
+      if (
+        match.includes('"plugin') || 
+        match.includes('"tool') || 
+        match.includes('"api_') || 
+        match.includes('"log_id') ||
+        match.includes('"code"') ||
+        match.includes('"msg"') ||
+        match.includes('"data"') ||
+        match.includes('"url"') ||
+        match.includes('"sitename"') ||
+        match.includes('"summary"') ||
+        match.includes('"logo_url"')
+      ) {
+        return '';
+      }
+      return match;
+    });
+    
+    // 移除残留的JSON片段（以逗号、引号等开头的不完整片段）
+    html = html.replace(/^[,\s]*["\{].*?["\}][,\s]*/gm, '');
+    html = html.replace(/^[,:"]\w+[,:"]/gm, '');
+    
+    // 移除工具调用标记
+    html = html.replace(/正在调用.*?工具.*?\n?/gi, '');
+    html = html.replace(/调用工具[:：].*?\n?/gi, '');
+    html = html.replace(/工具返回[:：].*?\n?/gi, '');
+    html = html.replace(/使用工具[:：].*?\n?/gi, '');
+    
+    // 移除思考过程标记
+    html = html.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    html = html.replace(/\[思考\][\s\S]*?\[\/思考\]/gi, '');
+    html = html.replace(/【思考】[\s\S]*?【\/思考】/gi, '');
+    html = html.replace(/```思考[\s\S]*?```/gi, '');
+    
+    // 移除思考过程文本
+    html = html.replace(/^让我.*?思考.*?\n?/gim, '');
+    html = html.replace(/^思考中.*?\n?/gim, '');
+    html = html.replace(/^分析中.*?\n?/gim, '');
+    html = html.replace(/^正在思考.*?\n?/gim, '');
+    
+    // 移除包含工具调用的JSON代码块
+    html = html.replace(/```json\s*\{[^}]*"tool"[^}]*\}[\s\S]*?```/gi, '');
+    html = html.replace(/```json\s*\{[^}]*"function"[^}]*\}[\s\S]*?```/gi, '');
+    
+    // 1. 转换标题（标题与上一行有间隔，与下一行无间隔）
+    html = html.replace(/^#### (.+)$/gm, '<h4 class="text-base font-semibold text-gray-900 dark:text-white mt-4 mb-0 border-l-4 border-green-500 pl-3">$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-bold text-gray-900 dark:text-white mt-5 mb-0 border-l-4 border-blue-500 pl-3">$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-6 mb-0 border-l-4 border-indigo-500 pl-3">$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-gray-900 dark:text-white mt-8 mb-0 border-l-4 border-purple-500 pl-3">$1</h1>');
     
     // 2. 转换粗体 **文本**
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white">$1</strong>');
@@ -397,22 +545,125 @@ export default function StudentLearningAssistant() {
     // 5. 转换行内代码 `code`
     html = html.replace(/`([^`]+)`/g, '<code class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded font-mono text-sm">$1</code>');
     
-    // 6. 转换有序列表（带编号）
+    // 6. 转换有序列表
+    // 标题性质的数字列表（以冒号结尾，作为小标题，与上有间隔，与下无间隔）
+    html = html.replace(/^(\d+)\.\s+(.+?)[：:]\s*$/gm, '<div class="flex items-start mt-4 mb-0"><span class="inline-flex items-center justify-center min-w-[24px] h-6 rounded-full bg-blue-500 text-white text-xs font-bold mr-2 flex-shrink-0">$1</span><span class="flex-1 pt-0.5 font-semibold text-gray-900 dark:text-white">$2：</span></div>');
+    
+    // 普通数字列表（不以冒号结尾）
     html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="inline-flex items-center justify-center min-w-[24px] h-6 rounded-full bg-blue-500 text-white text-xs font-bold mr-2 flex-shrink-0">$1</span><span class="flex-1 pt-0.5">$2</span></div>');
     
     // 7. 转换无序列表
-    html = html.replace(/^[-•]\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="text-blue-500 dark:text-blue-400 mr-2 text-base leading-6">●</span><span class="flex-1">$1</span></div>');
+    html = html.replace(/^[-•●]\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="text-blue-500 dark:text-blue-400 mr-2 text-base leading-6">●</span><span class="flex-1">$1</span></div>');
     
     // 8. 转换引用 > 文本
     html = html.replace(/^>\s+(.+)$/gm, '<blockquote class="border-l-4 border-gray-300 dark:border-gray-600 pl-4 py-2 my-2 italic text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-r">$1</blockquote>');
     
-    // 9. 转换段落（保持空行分隔）
+    // 9. 转换段落（保持空行分隔）并增强去重
     const paragraphs = html.split(/\n\n+/);
-    html = paragraphs.map(para => {
-      if (para.trim().startsWith('<')) return para; // 已经是HTML标签
-      if (para.trim() === '') return '';
-      return `<p class="my-2 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`;
-    }).join('\n');
+    const seenContent = new Set<string>();
+    const seenSimilarContent: string[] = []; // 用于相似度检测
+    const uniqueParagraphs: string[] = [];
+    
+    // 计算两个字符串的相似度（简单版本：基于公共子串）
+    const calculateSimilarity = (str1: string, str2: string): number => {
+      const len1 = str1.length;
+      const len2 = str2.length;
+      if (len1 === 0 || len2 === 0) return 0;
+      
+      // 使用最长公共子序列长度作为相似度指标
+      const shorter = len1 < len2 ? str1 : str2;
+      const longer = len1 < len2 ? str2 : str1;
+      
+      let matchCount = 0;
+      const shortLen = shorter.length;
+      
+      // 简化版：计算较短字符串有多少部分出现在较长字符串中
+      for (let i = 0; i < shortLen; i += 10) {
+        const chunk = shorter.substring(i, Math.min(i + 20, shortLen));
+        if (longer.includes(chunk)) {
+          matchCount += chunk.length;
+        }
+      }
+      
+      return matchCount / shortLen;
+    };
+    
+    for (const para of paragraphs) {
+      const trimmed = para.trim();
+      if (!trimmed) continue;
+      
+      // 过滤掉包含工具调用、思考或JSON关键词的段落
+      if (
+        trimmed.includes('tool_') ||
+        trimmed.includes('function_') ||
+        trimmed.includes('plugin_') ||
+        trimmed.includes('api_id') ||
+        trimmed.includes('log_id') ||
+        trimmed.includes('"url"') ||
+        trimmed.includes('sitename') ||
+        /^(思考|分析|推理)[:：]/i.test(trimmed)
+      ) {
+        continue;
+      }
+      
+      // 使用标准化内容作为去重键
+      const normalizedPara = trimmed.replace(/\s+/g, ' ').replace(/<[^>]*>/g, ''); // 移除HTML标签
+      const shortKey = normalizedPara.substring(0, 150);
+      
+      // 1. 完全相同的内容检查
+      if (seenContent.has(shortKey)) {
+        continue;
+      }
+      
+      // 2. 相似度检查（避免内容略有不同但本质相同的重复）
+      let isSimilar = false;
+      for (const seenPara of seenSimilarContent) {
+        const similarity = calculateSimilarity(normalizedPara, seenPara);
+        if (similarity > 0.8) { // 80%以上相似度视为重复
+          isSimilar = true;
+          console.log('⚠️ 检测到高度相似段落（相似度: ' + (similarity * 100).toFixed(1) + '%），已跳过');
+          break;
+        }
+      }
+      
+      if (isSimilar) {
+        continue;
+      }
+      
+      seenContent.add(shortKey);
+      seenSimilarContent.push(normalizedPara);
+      
+      // 转换为HTML
+      if (trimmed.startsWith('<')) {
+        uniqueParagraphs.push(para); // 已经是HTML标签
+      } else {
+        uniqueParagraphs.push(`<p class="my-2 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`);
+      }
+    }
+    
+    html = uniqueParagraphs.join('\n');
+    
+    // 10. 特殊处理：移除末尾的鼓励性重复语句
+    // 检测末尾是否有类似"如果有...随时问我"这样的重复
+    const encouragementPatterns = [
+      /如果(有|还有).*?随时.*?[！!]?(<\/p>)?$/i,
+      /有(什么|任何)问题.*?随时.*?[！!]?(<\/p>)?$/i,
+      /小超人鼓励.*?[！!]?(<\/p>)?$/i,
+    ];
+    
+    for (const pattern of encouragementPatterns) {
+      const matches = html.match(new RegExp(pattern.source, 'gi'));
+      if (matches && matches.length > 1) {
+        // 如果出现多次，只保留最后一次
+        const lastMatch = matches[matches.length - 1];
+        html = html.replace(pattern, '');
+        html = html + '\n' + lastMatch;
+      }
+    }
+    
+    // 11. 最后清理多余空白
+    html = html.replace(/\n{3,}/g, '\n\n');
+    html = html.trim();
     
     return html;
   };
@@ -620,6 +871,29 @@ export default function StudentLearningAssistant() {
                         />
                       )}
                     </div>
+                    
+                    {/* 建议问题按钮 */}
+                    {message.sender === 'assistant' && message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {message.suggestedQuestions.map((question, index) => (
+                          <button
+                            key={index}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              if (!isTyping) {
+                                handleSendMessage(question);
+                              }
+                            }}
+                            className="px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-sm border border-blue-200 dark:border-blue-800 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/40 dark:hover:to-indigo-900/40 transition-all hover:shadow-md hover:scale-105 flex items-center space-x-1"
+                            disabled={isTyping}
+                          >
+                            <i className="fa-solid fa-lightbulb text-yellow-500 text-xs"></i>
+                            <span>{question}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    
                     <p className={`text-xs mt-1 ${message.sender === 'user' ? 'text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>
                       {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
@@ -673,6 +947,28 @@ export default function StudentLearningAssistant() {
           {/* 输入区域 */}
           <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
             <div className="max-w-3xl mx-auto">
+              {/* 会话状态指示器 */}
+              {currentConversationId && (
+                <div className="mb-3 flex items-center justify-center">
+                  <div className="inline-flex items-center px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full">
+                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                    <span className="text-xs text-green-700 dark:text-green-300 font-medium">
+                      上下文已连接
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(currentConversationId);
+                        toast.success('会话ID已复制');
+                      }}
+                      className="ml-2 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300"
+                      title={`会话ID: ${currentConversationId}`}
+                    >
+                      <i className="fa-solid fa-info-circle text-xs"></i>
+                    </button>
+                  </div>
+                </div>
+              )}
+              
               <div className="flex space-x-2">
                 <input
                   type="text"
@@ -686,7 +982,7 @@ export default function StudentLearningAssistant() {
                   }`}
                 />
                 <button
-                  onClick={handleSendMessage}
+                  onClick={() => handleSendMessage()}
                   disabled={!inputValue.trim() || isTyping}
                   className={`p-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-colors ${
                     (!inputValue.trim() || isTyping) ? 'opacity-50 cursor-not-allowed' : ''
