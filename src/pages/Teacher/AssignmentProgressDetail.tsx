@@ -3,6 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
 import { gradeAssignmentWithStream } from "@/services/gradingApi";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 
 // 定义学生作业状态接口
 interface StudentAssignment {
@@ -598,99 +602,39 @@ export default function AssignmentProgressDetail() {
     navigate(`/teacher/assignments/detail/${assignmentId}?studentId=${studentAssignmentId}`);
   };
 
-  // 格式化批改文本 - 将文本转换为 HTML
-  const formatGradingText = (text: string): string => {
-    let html = text;
-    
-    // 0. 预处理：移除JSON和工具调用信息（额外保护层）
-    html = html.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
-      if (
-        match.includes('"msg_type"') || 
-        match.includes('"plugin') || 
-        match.includes('"tool') ||
-        match.includes('"from_module"')
-      ) {
-        return '';
-      }
-      return match;
-    });
-    
-    // 1. 转换 Markdown 表格
-    const tableRegex = /\|(.+)\|\s*\n\|[-:\s|]+\|\s*\n((?:\|.+\|\s*\n?)+)/g;
-    html = html.replace(tableRegex, (match) => {
-      const lines = match.trim().split('\n');
-      if (lines.length < 3) return match;
-      
-      const headers = lines[0].split('|').filter(cell => cell.trim()).map(cell => cell.trim());
-      const rows = lines.slice(2).map(line => 
-        line.split('|').filter(cell => cell.trim()).map(cell => cell.trim())
-      );
-      
-      let tableHtml = '<div class="overflow-x-auto my-4"><table class="min-w-full border-collapse border border-gray-300 dark:border-gray-600">';
-      
-      // 表头
-      tableHtml += '<thead class="bg-blue-50 dark:bg-blue-900/30"><tr>';
-      headers.forEach(header => {
-        tableHtml += `<th class="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left font-semibold text-gray-800 dark:text-gray-100">${header}</th>`;
-      });
-      tableHtml += '</tr></thead>';
-      
-      // 表体
-      tableHtml += '<tbody>';
-      rows.forEach((row, idx) => {
-        tableHtml += `<tr class="${idx % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700/50'}">`;
-        row.forEach(cell => {
-          tableHtml += `<td class="border border-gray-300 dark:border-gray-600 px-4 py-2 text-gray-700 dark:text-gray-300">${cell}</td>`;
-        });
-        tableHtml += '</tr>';
-      });
-      tableHtml += '</tbody></table></div>';
-      
-      return tableHtml;
-    });
-    
-    // 2. 转换标题（##### -> h5, #### -> h4, ### -> h3, ## -> h2, # -> h1）
-    // 从最长的开始替换，避免误匹配
-    html = html.replace(/^#####\s+(.+)$/gm, '<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mt-3 mb-1 border-l-4 border-teal-500 pl-3 bg-teal-50 dark:bg-teal-900/20 py-1 rounded-r">$1</h5>');
-    html = html.replace(/^####\s+(.+)$/gm, '<h4 class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-4 mb-2 border-l-4 border-blue-500 pl-3">$1</h4>');
-    html = html.replace(/^###\s+(.+)$/gm, '<h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mt-5 mb-3 border-l-4 border-green-500 pl-3">$1</h3>');
-    html = html.replace(/^##\s+(.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-6 mb-4 border-l-4 border-purple-500 pl-3">$1</h2>');
-    html = html.replace(/^#\s+(.+)$/gm, '<h1 class="text-2xl font-bold text-gray-900 dark:text-white mt-8 mb-5 border-l-4 border-red-500 pl-4">$1</h1>');
-    
-    // 3. 转换粗体 **文本** 和 $\boldsymbol{文本}$
-    html = html.replace(/\$\\boldsymbol\{([^}]+)\}\$/g, '<strong class="font-bold text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded">$1</strong>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded">$1</strong>');
-    
-    // 4. 转换数字列表（优化：区分带冒号和不带冒号的）
-    // 带冒号的作为小标题
-    html = html.replace(/^(\d+)\.\s+(.+?)[：:]\s*$/gm, '<div class="flex items-start my-3"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white text-sm font-bold mr-3 flex-shrink-0 shadow-sm">$1</span><span class="flex-1 pt-1 font-semibold text-gray-800 dark:text-gray-100">$2：</span></div>');
-    // 普通列表项
-    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 text-white text-sm font-bold mr-3 flex-shrink-0 shadow-sm">$1</span><span class="flex-1 pt-1">$2</span></div>');
-    
-    // 5. 转换无序列表（● - •）
-    html = html.replace(/^[●•-]\s+(.+)$/gm, '<div class="flex items-start my-2 ml-4"><span class="text-green-600 dark:text-green-400 mr-3 text-lg leading-7">●</span><span class="flex-1 pt-0.5">$1</span></div>');
-    
-    // 6. 高亮数学表达式
-    // x = 24 这样的等式
-    html = html.replace(/([^a-zA-Z>])([xyz]\s*=\s*[-\d.\/]+)([^a-zA-Z<]|$)/g, '$1<span class="inline-block px-3 py-1 bg-gradient-to-r from-blue-100 to-indigo-100 dark:from-blue-900/50 dark:to-indigo-900/50 text-blue-900 dark:text-blue-100 rounded-md font-mono text-base font-semibold border border-blue-200 dark:border-blue-800 shadow-sm">$2</span>$3');
-    
-    // 7. 高亮分数和数学符号
-    html = html.replace(/(<sup>[^<]+<\/sup>⁄<sub>[^<]+<\/sub>)/g, '<span class="inline-block px-2 py-1 bg-purple-50 dark:bg-purple-900/30 text-purple-900 dark:text-purple-100 rounded border border-purple-200 dark:border-purple-800 font-medium mx-0.5">$1</span>');
-    
-    // 8. 转换段落（保持空行分隔）
-    const paragraphs = html.split(/\n\n+/);
-    html = paragraphs.map(para => {
-      const trimmed = para.trim();
-      if (!trimmed) return '';
-      if (trimmed.startsWith('<')) return para; // 已经是HTML标签
-      return `<p class="my-3 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`;
-    }).filter(p => p).join('\n');
-    
-    // 9. 清理多余空白
-    html = html.replace(/\n{3,}/g, '\n\n');
-    html = html.trim();
-    
-    return html;
+  // Markdown 渲染组件
+  const MarkdownRenderer = ({ content }: { content: string }) => {
+    return (
+      <div className="markdown-content prose prose-green max-w-none dark:prose-invert
+        prose-headings:font-semibold
+        prose-h1:text-2xl prose-h1:mb-4 prose-h1:mt-6
+        prose-h2:text-xl prose-h2:mb-3 prose-h2:mt-5
+        prose-h3:text-lg prose-h3:mb-2 prose-h3:mt-4
+        prose-h4:text-base prose-h4:mb-2 prose-h4:mt-3
+        prose-p:text-gray-700 prose-p:leading-relaxed prose-p:mb-3
+        prose-li:text-gray-700 prose-li:leading-relaxed
+        prose-ul:my-3 prose-ol:my-3
+        prose-strong:text-gray-900 prose-strong:font-semibold
+        prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+        prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-200
+        prose-table:border-collapse prose-table:w-full
+        prose-th:border prose-th:border-gray-300 prose-th:px-4 prose-th:py-2 prose-th:bg-gray-50
+        prose-td:border prose-td:border-gray-300 prose-td:px-4 prose-td:py-2
+        dark:prose-p:text-gray-300
+        dark:prose-li:text-gray-300
+        dark:prose-strong:text-white
+        dark:prose-code:bg-gray-800
+        dark:prose-pre:bg-gray-800 dark:prose-pre:border-gray-700
+        dark:prose-th:bg-gray-800 dark:prose-th:border-gray-700
+        dark:prose-td:border-gray-700">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   // 过滤显示的学生作业
@@ -1170,8 +1114,8 @@ export default function AssignmentProgressDetail() {
                   </div>
                   <div className="bg-white dark:bg-gray-800 p-5 rounded-lg border border-blue-100 dark:border-blue-900/50 shadow-sm max-h-96 overflow-y-auto">
                     {streamingText ? (
-                      <div className="formatted-content text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
-                        <div dangerouslySetInnerHTML={{ __html: formatGradingText(streamingText) }} />
+                      <div className="text-sm leading-relaxed">
+                        <MarkdownRenderer content={streamingText} />
                         <span className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse"></span>
                         <div ref={streamingEndRef} />
                       </div>
@@ -1201,10 +1145,7 @@ export default function AssignmentProgressDetail() {
                   
                   {/* 美化显示 AI 返回的文本 */}
                   <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-green-100 dark:border-green-900/50 shadow-inner max-h-[600px] overflow-y-auto">
-                    <div 
-                      className="formatted-content text-gray-700 dark:text-gray-300 leading-loose text-base"
-                      dangerouslySetInnerHTML={{ __html: formatGradingText(comment) }}
-                    />
+                    <MarkdownRenderer content={comment} />
                   </div>
                   
                   {/* 操作按钮 */}

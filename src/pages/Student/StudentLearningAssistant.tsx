@@ -3,6 +3,10 @@ import { Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import { chatWithAssistant } from '@/services/learningAssistantApi';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 
 // 定义消息接口
 interface Message {
@@ -497,14 +501,12 @@ export default function StudentLearningAssistant() {
     return { cleanedContent: content, questions: [] };
   };
 
-  // 格式化消息内容 - 将 Markdown 转换为 HTML
+  // 清理消息内容 - 移除 JSON 和工具调用信息，保留 Markdown 格式
   const formatMessageContent = (content: string): string => {
-    let html = content;
+    let cleaned = content;
     
-    // 0. 预处理：移除所有JSON格式内容和工具调用信息
-    // 移除所有包含特定关键词的JSON对象（包括嵌套的）
-    html = html.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
-      // 如果JSON包含plugin、tool、api、log_id等关键词，移除
+    // 0. 移除 JSON 格式内容和工具调用信息
+    cleaned = cleaned.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
       if (
         match.includes('"plugin') || 
         match.includes('"tool') || 
@@ -523,92 +525,36 @@ export default function StudentLearningAssistant() {
       return match;
     });
     
-    // 移除残留的JSON片段（以逗号、引号等开头的不完整片段）
-    html = html.replace(/^[,\s]*["\{].*?["\}][,\s]*/gm, '');
-    html = html.replace(/^[,:"]\w+[,:"]/gm, '');
+    // 移除残留的JSON片段
+    cleaned = cleaned.replace(/^[,\s]*["\{].*?["\}][,\s]*/gm, '');
+    cleaned = cleaned.replace(/^[,:"]\w+[,:"]/gm, '');
     
     // 移除工具调用标记
-    html = html.replace(/正在调用.*?工具.*?\n?/gi, '');
-    html = html.replace(/调用工具[:：].*?\n?/gi, '');
-    html = html.replace(/工具返回[:：].*?\n?/gi, '');
-    html = html.replace(/使用工具[:：].*?\n?/gi, '');
+    cleaned = cleaned.replace(/正在调用.*?工具.*?\n?/gi, '');
+    cleaned = cleaned.replace(/调用工具[:：].*?\n?/gi, '');
+    cleaned = cleaned.replace(/工具返回[:：].*?\n?/gi, '');
+    cleaned = cleaned.replace(/使用工具[:：].*?\n?/gi, '');
     
     // 移除思考过程标记
-    html = html.replace(/<think>[\s\S]*?<\/think>/gi, '');
-    html = html.replace(/\[思考\][\s\S]*?\[\/思考\]/gi, '');
-    html = html.replace(/【思考】[\s\S]*?【\/思考】/gi, '');
-    html = html.replace(/```思考[\s\S]*?```/gi, '');
+    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    cleaned = cleaned.replace(/\[思考\][\s\S]*?\[\/思考\]/gi, '');
+    cleaned = cleaned.replace(/【思考】[\s\S]*?【\/思考】/gi, '');
+    cleaned = cleaned.replace(/```思考[\s\S]*?```/gi, '');
     
     // 移除思考过程文本
-    html = html.replace(/^让我.*?思考.*?\n?/gim, '');
-    html = html.replace(/^思考中.*?\n?/gim, '');
-    html = html.replace(/^分析中.*?\n?/gim, '');
-    html = html.replace(/^正在思考.*?\n?/gim, '');
+    cleaned = cleaned.replace(/^让我.*?思考.*?\n?/gim, '');
+    cleaned = cleaned.replace(/^思考中.*?\n?/gim, '');
+    cleaned = cleaned.replace(/^分析中.*?\n?/gim, '');
+    cleaned = cleaned.replace(/^正在思考.*?\n?/gim, '');
     
     // 移除包含工具调用的JSON代码块
-    html = html.replace(/```json\s*\{[^}]*"tool"[^}]*\}[\s\S]*?```/gi, '');
-    html = html.replace(/```json\s*\{[^}]*"function"[^}]*\}[\s\S]*?```/gi, '');
+    cleaned = cleaned.replace(/```json\s*\{[^}]*"tool"[^}]*\}[\s\S]*?```/gi, '');
+    cleaned = cleaned.replace(/```json\s*\{[^}]*"function"[^}]*\}[\s\S]*?```/gi, '');
     
-    // 1. 转换标题（标题与上一行有间隔，与下一行无间隔）
-    html = html.replace(/^#### (.+)$/gm, '<h4 class="text-base font-semibold text-gray-900 dark:text-white mt-4 mb-0 border-l-4 border-green-500 pl-3">$1</h4>');
-    html = html.replace(/^### (.+)$/gm, '<h3 class="text-lg font-bold text-gray-900 dark:text-white mt-5 mb-0 border-l-4 border-blue-500 pl-3">$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold text-gray-900 dark:text-white mt-6 mb-0 border-l-4 border-indigo-500 pl-3">$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold text-gray-900 dark:text-white mt-8 mb-0 border-l-4 border-purple-500 pl-3">$1</h1>');
-    
-    // 2. 转换粗体 **文本**
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-gray-900 dark:text-white">$1</strong>');
-    
-    // 3. 转换斜体 *文本*
-    html = html.replace(/\*(.+?)\*/g, '<em class="italic text-gray-700 dark:text-gray-300">$1</em>');
-    
-    // 4. 转换数学公式 \( ... \)
-    html = html.replace(/\\\(([^)]+)\\\)/g, '<span class="inline-block px-2 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100 rounded font-mono text-sm mx-0.5">$1</span>');
-    
-    // 5. 转换行内代码 `code`
-    html = html.replace(/`([^`]+)`/g, '<code class="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded font-mono text-sm">$1</code>');
-    
-    // 6. 转换有序列表
-    // 标题性质的数字列表（以冒号结尾，作为小标题，与上有间隔，与下无间隔）
-    html = html.replace(/^(\d+)\.\s+(.+?)[：:]\s*$/gm, '<div class="flex items-start mt-4 mb-0"><span class="inline-flex items-center justify-center min-w-[24px] h-6 rounded-full bg-blue-500 text-white text-xs font-bold mr-2 flex-shrink-0">$1</span><span class="flex-1 pt-0.5 font-semibold text-gray-900 dark:text-white">$2：</span></div>');
-    
-    // 普通数字列表（不以冒号结尾）
-    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="inline-flex items-center justify-center min-w-[24px] h-6 rounded-full bg-blue-500 text-white text-xs font-bold mr-2 flex-shrink-0">$1</span><span class="flex-1 pt-0.5">$2</span></div>');
-    
-    // 7. 转换无序列表
-    html = html.replace(/^[-•●]\s+(.+)$/gm, '<div class="flex items-start my-1.5"><span class="text-blue-500 dark:text-blue-400 mr-2 text-base leading-6">●</span><span class="flex-1">$1</span></div>');
-    
-    // 8. 转换引用 > 文本
-    html = html.replace(/^>\s+(.+)$/gm, '<blockquote class="border-l-4 border-gray-300 dark:border-gray-600 pl-4 py-2 my-2 italic text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-r">$1</blockquote>');
-    
-    // 9. 转换段落（保持空行分隔）并增强去重
-    const paragraphs = html.split(/\n\n+/);
+    // 1. 简单去重 - 移除重复段落
+    const paragraphs = cleaned.split(/\n\n+/);
     const seenContent = new Set<string>();
-    const seenSimilarContent: string[] = []; // 用于相似度检测
     const uniqueParagraphs: string[] = [];
-    
-    // 计算两个字符串的相似度（简单版本：基于公共子串）
-    const calculateSimilarity = (str1: string, str2: string): number => {
-      const len1 = str1.length;
-      const len2 = str2.length;
-      if (len1 === 0 || len2 === 0) return 0;
-      
-      // 使用最长公共子序列长度作为相似度指标
-      const shorter = len1 < len2 ? str1 : str2;
-      const longer = len1 < len2 ? str2 : str1;
-      
-      let matchCount = 0;
-      const shortLen = shorter.length;
-      
-      // 简化版：计算较短字符串有多少部分出现在较长字符串中
-      for (let i = 0; i < shortLen; i += 10) {
-        const chunk = shorter.substring(i, Math.min(i + 20, shortLen));
-        if (longer.includes(chunk)) {
-          matchCount += chunk.length;
-        }
-      }
-      
-      return matchCount / shortLen;
-    };
     
     for (const para of paragraphs) {
       const trimmed = para.trim();
@@ -628,66 +574,53 @@ export default function StudentLearningAssistant() {
         continue;
       }
       
-      // 使用标准化内容作为去重键
-      const normalizedPara = trimmed.replace(/\s+/g, ' ').replace(/<[^>]*>/g, ''); // 移除HTML标签
-      const shortKey = normalizedPara.substring(0, 150);
-      
-      // 1. 完全相同的内容检查
-      if (seenContent.has(shortKey)) {
+      // 使用前150字符作为去重键
+      const key = trimmed.substring(0, 150);
+      if (seenContent.has(key)) {
         continue;
       }
       
-      // 2. 相似度检查（避免内容略有不同但本质相同的重复）
-      let isSimilar = false;
-      for (const seenPara of seenSimilarContent) {
-        const similarity = calculateSimilarity(normalizedPara, seenPara);
-        if (similarity > 0.8) { // 80%以上相似度视为重复
-          isSimilar = true;
-          console.log('⚠️ 检测到高度相似段落（相似度: ' + (similarity * 100).toFixed(1) + '%），已跳过');
-          break;
-        }
-      }
-      
-      if (isSimilar) {
-        continue;
-      }
-      
-      seenContent.add(shortKey);
-      seenSimilarContent.push(normalizedPara);
-      
-      // 转换为HTML
-      if (trimmed.startsWith('<')) {
-        uniqueParagraphs.push(para); // 已经是HTML标签
-      } else {
-        uniqueParagraphs.push(`<p class="my-2 leading-relaxed">${para.replace(/\n/g, '<br>')}</p>`);
-      }
+      seenContent.add(key);
+      uniqueParagraphs.push(trimmed);
     }
     
-    html = uniqueParagraphs.join('\n');
+    cleaned = uniqueParagraphs.join('\n\n');
     
-    // 10. 特殊处理：移除末尾的鼓励性重复语句
-    // 检测末尾是否有类似"如果有...随时问我"这样的重复
-    const encouragementPatterns = [
-      /如果(有|还有).*?随时.*?[！!]?(<\/p>)?$/i,
-      /有(什么|任何)问题.*?随时.*?[！!]?(<\/p>)?$/i,
-      /小超人鼓励.*?[！!]?(<\/p>)?$/i,
-    ];
+    // 2. 清理多余空行
+    cleaned = cleaned.replace(/\n{4,}/g, '\n\n\n');
+    cleaned = cleaned.trim();
     
-    for (const pattern of encouragementPatterns) {
-      const matches = html.match(new RegExp(pattern.source, 'gi'));
-      if (matches && matches.length > 1) {
-        // 如果出现多次，只保留最后一次
-        const lastMatch = matches[matches.length - 1];
-        html = html.replace(pattern, '');
-        html = html + '\n' + lastMatch;
-      }
-    }
-    
-    // 11. 最后清理多余空白
-    html = html.replace(/\n{3,}/g, '\n\n');
-    html = html.trim();
-    
-    return html;
+    return cleaned;
+  };
+
+  // Markdown 渲染组件
+  const MarkdownRenderer = ({ content }: { content: string }) => {
+    return (
+      <div className="markdown-content prose prose-sm prose-blue max-w-none dark:prose-invert
+        prose-headings:font-semibold
+        prose-h1:text-xl prose-h1:mb-3 prose-h1:mt-4
+        prose-h2:text-lg prose-h2:mb-2 prose-h2:mt-3
+        prose-h3:text-base prose-h3:mb-2 prose-h3:mt-3
+        prose-h4:text-sm prose-h4:mb-1 prose-h4:mt-2
+        prose-p:text-gray-700 prose-p:leading-relaxed prose-p:mb-2
+        prose-li:text-gray-700 prose-li:leading-relaxed
+        prose-ul:my-2 prose-ol:my-2
+        prose-strong:text-gray-900 prose-strong:font-semibold
+        prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+        prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-200 prose-pre:text-sm
+        dark:prose-p:text-gray-300
+        dark:prose-li:text-gray-300
+        dark:prose-strong:text-white
+        dark:prose-code:bg-gray-700
+        dark:prose-pre:bg-gray-800 dark:prose-pre:border-gray-700">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize]}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   // 过滤会话列表
@@ -887,10 +820,7 @@ export default function StudentLearningAssistant() {
                       {message.sender === 'user' ? (
                         <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                       ) : (
-                        <div 
-                          className="formatted-content leading-relaxed"
-                          dangerouslySetInnerHTML={{ __html: formatMessageContent(message.content) }}
-                        />
+                        <MarkdownRenderer content={formatMessageContent(message.content)} />
                       )}
                     </div>
                     
@@ -941,10 +871,9 @@ export default function StudentLearningAssistant() {
                     {streamingText ? (
                       <div className="inline-block rounded-2xl p-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 shadow-sm">
                         <div className="flex items-start">
-                          <div 
-                            className="formatted-content leading-relaxed flex-1"
-                            dangerouslySetInnerHTML={{ __html: formatMessageContent(streamingText) }}
-                          />
+                          <div className="flex-1">
+                            <MarkdownRenderer content={formatMessageContent(streamingText)} />
+                          </div>
                           <span className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse flex-shrink-0"></span>
                         </div>
                       </div>

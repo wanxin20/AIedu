@@ -2,6 +2,10 @@ import { useContext, useState, useEffect } from "react";
 import { useNavigate, useParams, Link, useLocation } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 
 interface Assignment {
   id: number;
@@ -217,6 +221,33 @@ export default function StudentAssignmentDetail() {
     const [assignment, setAssignment] = useState<Assignment | null>(null);
     const [showAttachmentPreview, setShowAttachmentPreview] = useState(false);
     const [selectedAttachment, setSelectedAttachment] = useState<any>(null);
+
+    // Markdown 渲染组件
+    const MarkdownRenderer = ({ content }: { content: string }) => {
+      return (
+        <div className="markdown-content prose prose-sm prose-purple max-w-none dark:prose-invert
+          prose-headings:font-semibold
+          prose-h1:text-lg prose-h1:mb-3 prose-h1:mt-4
+          prose-h2:text-base prose-h2:mb-2 prose-h2:mt-3
+          prose-h3:text-sm prose-h3:mb-2 prose-h3:mt-3
+          prose-p:text-gray-700 prose-p:leading-relaxed prose-p:mb-2
+          prose-li:text-gray-700 prose-li:leading-relaxed
+          prose-ul:my-2 prose-ol:my-2
+          prose-strong:text-gray-900 prose-strong:font-semibold
+          prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+          dark:prose-p:text-gray-300
+          dark:prose-li:text-gray-300
+          dark:prose-strong:text-white
+          dark:prose-code:bg-gray-700">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw, rehypeSanitize]}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      );
+    };
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -521,15 +552,15 @@ export default function StudentAssignmentDetail() {
       {assignment.comment && <div className="mb-6">
         <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-2">老师评语</h4>
         <div
-          className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border-l-4 border-purple-500 dark:border-purple-600">
-          <p className="text-gray-600 dark:text-gray-300">{assignment.comment}</p>
+          className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-5 rounded-xl border-l-4 border-purple-500 dark:border-purple-600 shadow-sm">
+          <MarkdownRenderer content={assignment.comment} />
         </div>
       </div>}
       {!assignment.comment && assignment.status === "graded" && <div className="mb-6">
         <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-2">老师评语</h4>
         <div
-          className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg border-l-4 border-purple-500 dark:border-purple-600">
-          <p className="text-gray-600 dark:text-gray-300">整体表现良好，知识点掌握扎实，但在一些细节问题上还需要加强。建议多做一些相关练习，巩固对知识点的理解和应用能力。继续加油！</p>
+          className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-5 rounded-xl border-l-4 border-purple-500 dark:border-purple-600 shadow-sm">
+          <p className="text-gray-700 dark:text-gray-300 leading-loose">整体表现良好，知识点掌握扎实，但在一些细节问题上还需要加强。建议多做一些相关练习，巩固对知识点的理解和应用能力。继续加油！</p>
         </div>
       </div>}
       

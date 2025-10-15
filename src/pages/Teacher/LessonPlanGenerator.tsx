@@ -3,6 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
 import { generateLessonPlanFromApi, parseApiResponse } from "@/services/lessonPlanApi";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 
 // 定义目录项接口
 interface TableOfContent {
@@ -151,63 +155,34 @@ const generateTableOfContents = (grade: string, subject: string): TableOfContent
   return baseContents;
 };
 
-// 简单的 Markdown 渲染组件
+// 使用 react-markdown 渲染 Markdown 内容
 const MarkdownRenderer = ({ content }: { content: string }) => {
-  const renderMarkdown = (markdown: string) => {
-    let html = markdown;
-    
-    // 转换 ## 标题
-    html = html.replace(/^## \*\*(.+?)\*\*$/gm, '<h2 class="text-2xl font-bold text-gray-800 dark:text-white mt-8 mb-0 first:mt-0">$1</h2>');
-    html = html.replace(/^## (.+)$/gm, '<h2 class="text-2xl font-bold text-gray-800 dark:text-white mt-8 mb-0 first:mt-0">$1</h2>');
-    
-    // 转换 ### 标题
-    html = html.replace(/^### \*\*(.+?)\*\*$/gm, '<h3 class="text-xl font-semibold text-gray-800 dark:text-white mt-6 mb-0">$1</h3>');
-    html = html.replace(/^### (.+)$/gm, '<h3 class="text-xl font-semibold text-gray-800 dark:text-white mt-6 mb-0">$1</h3>');
-    
-    // 转换 #### 标题
-    html = html.replace(/^#### \*\*(.+?)\*\*$/gm, '<h4 class="text-lg font-medium text-gray-700 dark:text-gray-200 mt-4 mb-0">$1</h4>');
-    html = html.replace(/^#### (.+)$/gm, '<h4 class="text-lg font-medium text-gray-700 dark:text-gray-200 mt-4 mb-0">$1</h4>');
-    
-    // 转换单独成行的粗体（作为小标题使用，与上一行有间隔，与下一行无间隔）
-    html = html.replace(/^\*\*(.+?)\*\*$/gm, '<div class="font-semibold text-gray-900 dark:text-white mt-4 mb-0">$1</div>');
-    
-    // 转换行内粗体
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-gray-900 dark:text-white">$1</strong>');
-    
-    // 转换列表项
-    html = html.replace(/^[-•·*]\s+(.+)$/gm, '<div class="flex items-start ml-4 mb-2"><span class="text-green-600 dark:text-green-400 mr-2">•</span><span class="text-gray-700 dark:text-gray-300">$1</span></div>');
-    
-    // 转换标题性质的数字列表（以冒号结尾，作为小标题，与上有间隔，与下无间隔）
-    html = html.replace(/^(\d+)\.\s+(.+?)[：:]\s*$/gm, '<div class="ml-4 font-semibold text-gray-900 dark:text-white mt-4 mb-0"><span class="text-green-600 dark:text-green-400">$1.</span> $2：</div>');
-    
-    // 转换普通数字列表（不以冒号结尾）
-    html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<div class="ml-4 text-gray-700 dark:text-gray-300 mb-2"><span class="font-medium text-green-600 dark:text-green-400">$1.</span> $2</div>');
-    
-    // 转换代码块中的内容（保留格式）
-    html = html.replace(/```([\s\S]*?)```/g, '<pre class="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm text-gray-800 dark:text-gray-200">$1</code></pre>');
-    
-    // 转换分隔线
-    html = html.replace(/^---$/gm, '<hr class="my-6 border-gray-300 dark:border-gray-600">');
-    
-    // 转换段落（双换行）
-    html = html.split('\n\n').map(para => {
-      if (para.trim() && !para.startsWith('<')) {
-        return `<p class="text-gray-700 dark:text-gray-300 mb-4">${para}</p>`;
-      }
-      return para;
-    }).join('\n');
-    
-    // 转换单换行
-    html = html.replace(/\n/g, '<br>');
-    
-    return html;
-  };
-  
   return (
-    <div 
-      className="markdown-content"
-      dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
-    />
+    <div className="markdown-content prose prose-green max-w-none dark:prose-invert
+      prose-headings:font-semibold prose-headings:text-gray-900
+      prose-h1:text-2xl prose-h1:mb-4 prose-h1:mt-6
+      prose-h2:text-xl prose-h2:mb-3 prose-h2:mt-5
+      prose-h3:text-lg prose-h3:mb-2 prose-h3:mt-4
+      prose-h4:text-base prose-h4:mb-2 prose-h4:mt-3
+      prose-p:text-gray-900 prose-p:leading-relaxed prose-p:mb-3
+      prose-li:text-gray-900 prose-li:leading-relaxed
+      prose-strong:text-gray-900 prose-strong:font-bold
+      prose-ul:my-3 prose-ol:my-3
+      prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-gray-900
+      prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-200
+      dark:prose-headings:text-gray-100
+      dark:prose-p:text-gray-100
+      dark:prose-li:text-gray-100
+      dark:prose-strong:text-white
+      dark:prose-code:bg-gray-800 dark:prose-code:text-gray-100
+      dark:prose-pre:bg-gray-800 dark:prose-pre:border-gray-700">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 };
 

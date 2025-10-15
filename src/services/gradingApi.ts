@@ -149,7 +149,7 @@ export async function gradeAssignmentWithStream(
 }
 
 /**
- * 清理和格式化 AI 返回的文本
+ * 清理和格式化 AI 返回的文本 - 简化版（使用 Markdown 格式）
  */
 function cleanAndFormatText(text: string): string {
   let cleaned = text;
@@ -158,7 +158,6 @@ function cleanAndFormatText(text: string): string {
   console.log('🔍 原始文本前500字符:', text.substring(0, 500));
   
   // 1. 移除 JSON 格式的数据
-  // 移除所有包含特定关键词的JSON对象
   cleaned = cleaned.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
     if (
       match.includes('"msg_type"') || 
@@ -176,113 +175,33 @@ function cleanAndFormatText(text: string): string {
   cleaned = cleaned.replace(/^[,\s]*["\{].*?["\}][,\s]*/gm, '');
   cleaned = cleaned.replace(/","from_module"[^}]*$/g, '');
   
-  // 2. 检测并移除重复内容（使用相似度算法，降低去重阈值）
+  // 2. 去除重复内容（简单版本）
   if (cleaned.length > 300) {
     const paragraphs = cleaned.split(/\n{2,}/);
     const uniqueParagraphs: string[] = [];
     const seenContent = new Set<string>();
-    const seenSimilarContent: string[] = [];
-    
-    // 计算相似度
-    const calculateSimilarity = (str1: string, str2: string): number => {
-      const len1 = str1.length;
-      const len2 = str2.length;
-      if (len1 === 0 || len2 === 0) return 0;
-      
-      const shorter = len1 < len2 ? str1 : str2;
-      const longer = len1 < len2 ? str2 : str1;
-      
-      let matchCount = 0;
-      const shortLen = shorter.length;
-      
-      for (let i = 0; i < shortLen; i += 10) {
-        const chunk = shorter.substring(i, Math.min(i + 20, shortLen));
-        if (longer.includes(chunk)) {
-          matchCount += chunk.length;
-        }
-      }
-      
-      return matchCount / shortLen;
-    };
     
     for (const para of paragraphs) {
       const trimmed = para.trim();
       if (!trimmed) continue;
       
-      // 使用较长的键（150字符）来更准确地去重
-      const normalizedPara = trimmed.replace(/\s+/g, ' ');
-      const shortKey = normalizedPara.substring(0, 150);
-      
-      // 完全相同的内容检查
-      if (seenContent.has(shortKey)) {
-        console.log('⚠️ 检测到完全重复段落，已跳过');
+      // 使用前150字符作为去重键
+      const key = trimmed.substring(0, 150);
+      if (seenContent.has(key)) {
+        console.log('⚠️ 检测到重复段落，已跳过');
         continue;
       }
       
-      // 相似度检查 - 只有 95% 以上相似度才视为重复（提高阈值，减少误判）
-      let isSimilar = false;
-      for (const seenPara of seenSimilarContent) {
-        const similarity = calculateSimilarity(normalizedPara, seenPara);
-        if (similarity > 0.95) {
-          isSimilar = true;
-          console.log('⚠️ 检测到高度相似段落（相似度: ' + (similarity * 100).toFixed(1) + '%），已跳过');
-          break;
-        }
-      }
-      
-      if (isSimilar) {
-        continue;
-      }
-      
-      seenContent.add(shortKey);
-      seenSimilarContent.push(normalizedPara);
+      seenContent.add(key);
       uniqueParagraphs.push(trimmed);
     }
     
     cleaned = uniqueParagraphs.join('\n\n');
   }
   
-  // 3. 修复错误的 LaTeX 格式
-  // \frac{3{4} -> \frac{3}{4}
-  cleaned = cleaned.replace(/\\frac\{(\d+)\{(\d+)\}/g, '\\frac{$1}{$2}');
-  
-  // 4. 转换 LaTeX 数学公式为更易读的 HTML 格式
-  // \frac{a}{b} -> <sup>a</sup>/<sub>b</sub> (分数)
-  cleaned = cleaned.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '<sup>$1</sup>⁄<sub>$2</sub>');
-  
-  // 5. 处理其他 LaTeX 公式
-  // \(...\) 行内公式
-  cleaned = cleaned.replace(/\\\(([^)]+)\\\)/g, (_match, formula) => {
-    let f = formula;
-    // 简化分数表示
-    f = f.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '<sup>$1</sup>⁄<sub>$2</sub>');
-    // 移除 boldsymbol
-    f = f.replace(/\\boldsymbol\{([^}]+)\}/g, '$1');
-    // 转换符号
-    f = f.replace(/\\times/g, '×');
-    f = f.replace(/\\div/g, '÷');
-    f = f.replace(/\\left\(/g, '(');
-    f = f.replace(/\\right\)/g, ')');
-    return f;
-  });
-  
-  // 6. 转换 LaTeX 符号
-  cleaned = cleaned.replace(/\\implies/g, ' ⇒ ');
-  cleaned = cleaned.replace(/\\times/g, '×');
-  cleaned = cleaned.replace(/\\div/g, '÷');
-  cleaned = cleaned.replace(/\\neq/g, '≠');
-  cleaned = cleaned.replace(/\\leq/g, '≤');
-  cleaned = cleaned.replace(/\\geq/g, '≥');
-  cleaned = cleaned.replace(/\\left\(/g, '(');
-  cleaned = cleaned.replace(/\\right\)/g, ')');
-  cleaned = cleaned.replace(/\\left\[/g, '[');
-  cleaned = cleaned.replace(/\\right\]/g, ']');
-  
-  // 7. 清理多余的反斜杠
-  cleaned = cleaned.replace(/\\([^a-zA-Z])/g, '$1');
-  
-  // 8. 清理多余的空白和换行
-  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  // 3. 保持 Markdown 格式，只做基本清理
+  // 清理多余的空行
+  cleaned = cleaned.replace(/\n{4,}/g, '\n\n\n');
   cleaned = cleaned.trim();
   
   console.log('🎨 清理后的文本长度:', cleaned.length);

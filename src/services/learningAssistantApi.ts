@@ -456,7 +456,17 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
   cleaned = cleaned.replace(/```json\s*\{[^}]*"tool"[^}]*\}[\s\S]*?```/gi, '');
   cleaned = cleaned.replace(/```json\s*\{[^}]*"function"[^}]*\}[\s\S]*?```/gi, '');
   
-  // 5. 清理多余的空白和换行（在去重之前）
+  // 5. 保护重要的换行结构
+  // 5.1 保护列表项的换行（- 开头的行）
+  cleaned = cleaned.replace(/([^\n])(- [^\n]+)/g, '$1\n$2');
+  
+  // 5.2 保护标题后的冒号换行
+  cleaned = cleaned.replace(/([：:])\s*([^\n])/g, '$1\n$2');
+  
+  // 5.3 保护段落标识（如"第X段"、"第X自然段"等）
+  cleaned = cleaned.replace(/([。！？\n])\s*(第[一二三四五六七八九十\d]+[段落自然节章])/g, '$1\n\n$2');
+  
+  // 5.4 清理多余的空白和换行
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   cleaned = cleaned.trim();
   
@@ -503,7 +513,7 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
   cleaned = detectAndRemoveLargeRepetition(cleaned);
   
   // 6. 移除重复的段落和句子（增强版去重 + 相似度检测）
-  // 先按段落分割
+  // 先按段落分割（使用双换行）
   const paragraphs = cleaned.split(/\n\n+/);
   const uniqueParagraphs: string[] = [];
   const seenContent = new Set<string>();
@@ -549,7 +559,7 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
       continue;
     }
     
-    // 使用段落的标准化内容作为去重键
+    // 使用段落的标准化内容作为去重键（移除单换行，只保留空格）
     const normalizedPara = trimmedPara.replace(/\s+/g, ' ');
     const shortKey = normalizedPara.substring(0, 150);
     
@@ -576,9 +586,13 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
     
     seenContent.add(shortKey);
     seenSimilarContent.push(normalizedPara);
-    uniqueParagraphs.push(trimmedPara);
+    
+    // 🔑 保留段落内的单换行（不要用 trim() 移除）
+    // 这样可以保持列表、分行等格式
+    uniqueParagraphs.push(para.trim());
   }
   
+  // 🔑 用双换行连接段落，保留段落内的单换行
   cleaned = uniqueParagraphs.join('\n\n');
   
   // 7. 再次检测并移除相邻重复的大块文本（例如整个章节重复）
