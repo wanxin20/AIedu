@@ -191,6 +191,10 @@ export default function AssignmentProgressDetail() {
   const [streamingText, setStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const streamingEndRef = useRef<HTMLDivElement>(null);
+  
+  // 图片预览相关状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [imageScale, setImageScale] = useState(1);
 
   // 自动滚动到流式输出底部
   useEffect(() => {
@@ -225,7 +229,40 @@ export default function AssignmentProgressDetail() {
       navigate("/");
     }
   }, [user, navigate]);
+  
+  // 键盘事件监听（ESC关闭预览）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && previewImage) {
+        handleClosePreview();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewImage]);
 
+  // 打开图片预览
+  const handleImageClick = (imageUrl: string) => {
+    setPreviewImage(imageUrl);
+    setImageScale(1);
+  };
+  
+  // 关闭图片预览
+  const handleClosePreview = () => {
+    setPreviewImage(null);
+    setImageScale(1);
+  };
+  
+  // 图片缩放
+  const handleZoomIn = () => {
+    setImageScale(prev => Math.min(prev + 0.25, 3));
+  };
+  
+  const handleZoomOut = () => {
+    setImageScale(prev => Math.max(prev - 0.25, 0.5));
+  };
+  
   // 处理批改作业
   const handleGradeAssignment = (studentAssignment: StudentAssignment) => {
     setCurrentAssignment(studentAssignment);
@@ -1060,6 +1097,7 @@ export default function AssignmentProgressDetail() {
                       <div 
                         key={attachment.id}
                         className="relative group cursor-pointer overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700"
+                        onClick={() => attachment.type === "image" && handleImageClick(attachment.url)}
                       >
                         {attachment.type === "image" ? (
                           <img
@@ -1075,6 +1113,14 @@ export default function AssignmentProgressDetail() {
                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
                           <p className="text-white font-medium truncate">{attachment.name}</p>
                         </div>
+                        {/* 图片放大提示 */}
+                        {attachment.type === "image" && (
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300 flex items-center justify-center">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white/90 dark:bg-gray-800/90 rounded-full p-3">
+                              <i className="fa-solid fa-search-plus text-gray-800 dark:text-white text-xl"></i>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1262,6 +1308,58 @@ export default function AssignmentProgressDetail() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 图片预览模态框 */}
+      {previewImage && (
+        <div 
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4"
+          onClick={handleClosePreview}
+        >
+          <button
+            onClick={handleClosePreview}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10"
+          >
+            <i className="fa-solid fa-times text-3xl"></i>
+          </button>
+          
+          {/* 缩放控制按钮 */}
+          <div className="absolute top-4 left-4 flex items-center space-x-2 z-10">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleZoomOut();
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors"
+            >
+              <i className="fa-solid fa-search-minus"></i>
+            </button>
+            <span className="text-white font-medium bg-black/30 px-3 py-1 rounded-full">
+              {Math.round(imageScale * 100)}%
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleZoomIn();
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors"
+            >
+              <i className="fa-solid fa-search-plus"></i>
+            </button>
+          </div>
+          
+          <div 
+            className="max-w-7xl max-h-full overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={previewImage}
+              alt="预览"
+              className="max-w-full max-h-[90vh] object-contain transition-transform duration-300"
+              style={{ transform: `scale(${imageScale})` }}
+            />
           </div>
         </div>
       )}

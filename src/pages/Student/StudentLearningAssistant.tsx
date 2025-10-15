@@ -44,7 +44,7 @@ export default function StudentLearningAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingText]);
 
-  // 初始化欢迎消息
+  // 初始化欢迎消息和会话
   useEffect(() => {
     // 创建初始欢迎消息
     const welcomeMessage: Message = {
@@ -55,6 +55,13 @@ export default function StudentLearningAssistant() {
     };
     
     setMessages([welcomeMessage]);
+    
+    // ⚠️ 不在初始化时创建会话
+    // 原因：/v1/conversation/create 创建的会话ID与 /v3/chat 不兼容
+    // 解决方案：让 /v3/chat API 在第一次调用时自动创建会话，然后保存返回的ID
+    console.log('🚀 页面初始化');
+    console.log('   策略：第一次发送消息时，/v3/chat 会自动创建会话');
+    console.log('   我们会保存API返回的conversation_id，用于后续对话');
     
     // 初始化并加载历史对话
     loadChatHistory();
@@ -225,11 +232,17 @@ export default function StudentLearningAssistant() {
     
     setMessages([welcomeMessage]);
     setCurrentSessionId(null);
-    setCurrentConversationId(''); // 清空会话ID，下次对话时会自动创建新的
+    setCurrentConversationId(''); // 清空会话ID
     
     console.log('🆕 创建新会话');
-    console.log('   已清空会话ID，下次发送消息时将创建新的Coze会话');
-    console.log('   上下文将重新开始');
+    console.log('   已清空conversation_id');
+    console.log('   下次发送消息时，/v3/chat 会自动创建新的会话');
+    console.log('   我们会保存API返回的新conversation_id');
+    
+    toast.success('新会话已创建', {
+      description: '可以开始新的对话了',
+      duration: 2000,
+    });
     
     // 在移动设备上，创建新会话后关闭侧边栏
     if (window.innerWidth < 768) {
@@ -363,15 +376,38 @@ export default function StudentLearningAssistant() {
     console.log('   会话状态:', hasConversationId ? '继续现有会话' : '将创建新会话');
     console.log('   当前会话列表ID:', currentSessionId || '无');
     
+    // 🔑 构建历史消息数组 - 用于上下文传递
+    // 根据 Coze API 文档：只需传入 user 和 assistant 的消息，排除欢迎消息
+    const historyMessages = messages
+      .filter(msg => {
+        // 过滤掉欢迎消息（id 为 'welcome' 或以 'welcome-' 开头）
+        if (msg.id === 'welcome' || msg.id.startsWith('welcome-')) {
+          return false;
+        }
+        // 只保留 user 和 assistant 消息
+        return msg.sender === 'user' || msg.sender === 'assistant';
+      })
+      .map(msg => ({
+        role: msg.sender as 'user' | 'assistant',
+        content: msg.content
+      }));
+    
+    console.log('📚 准备发送的历史消息数量:', historyMessages.length);
+    if (historyMessages.length > 0) {
+      console.log('   最早的消息:', historyMessages[0].content.substring(0, 50) + '...');
+      console.log('   最新的消息:', historyMessages[historyMessages.length - 1].content.substring(0, 50) + '...');
+    }
+    
     try {
-      // 调用真实的 AI 助手 API，传递会话ID以保持上下文
+      // 调用真实的 AI 助手 API，传递会话ID和历史消息以保持上下文
       const result = await chatWithAssistant(
         userMessageContent,
         (chunk) => {
           // 流式输出回调 - 实时显示 AI 回复
           setStreamingText(prev => prev + chunk);
         },
-        currentConversationId || undefined // 传递会话ID，如果为空则创建新会话
+        currentConversationId || undefined, // 传递会话ID，如果为空则创建新会话
+        historyMessages.length > 0 ? historyMessages : undefined // 传递历史消息作为上下文
       );
       
       // 更新会话ID - 确保后续对话使用同一个会话
@@ -432,47 +468,33 @@ export default function StudentLearningAssistant() {
     }
   };
 
-  // 提取建议问题 - 从内容末尾提取AI建议的快捷问题
+  // 提取建议问题 - 从 API 返回的特殊标记中解析
   const extractSuggestedQuestions = (content: string): { cleanedContent: string; questions: string[] } => {
-    // 查找末尾连续的建议性问题（通常以动词开头，如"分享"、"推荐"、"制定"等）
-    const suggestionPatterns = [
-      // 匹配末尾连续的建议（不带标点分隔的）
-      /([分享推荐制定查看了解学习掌握获取](一[份些]|更多)?[\u4e00-\u9fa5]{4,30}[？?吗呢]?)([分享推荐制定查看了解学习掌握](一[份些]|更多)?[\u4e00-\u9fa5]{4,30}[？?吗呢]?)([分享推荐制定查看了解学习掌握](一[份些]|更多)?[\u4e00-\u9fa5]{4,30}[？?吗呢]?)?$/,
-      // 匹配末尾的"你可以..."建议
-      /(你可以|你还可以|建议你|推荐)[:：]?[\s\S]*$/,
-    ];
+    // 检查是否包含建议问题标记
+    const marker = '__SUGGESTED_QUESTIONS__';
+    const questionSeparator = '__Q__';
     
-    let cleanedContent = content;
-    const questions: string[] = [];
-    
-    // 尝试匹配末尾的建议
-    for (const pattern of suggestionPatterns) {
-      const match = cleanedContent.match(pattern);
-      if (match) {
-        const suggestionText = match[0];
+    if (content.includes(marker)) {
+      // 分割内容和建议问题部分
+      const parts = content.split(marker);
+      const cleanedContent = parts[0].trim();
+      
+      if (parts[1]) {
+        // 提取建议问题
+        const questionsText = parts[1].trim();
+        const questions = questionsText
+          .split(questionSeparator)
+          .map(q => q.trim())
+          .filter(q => q.length > 0);
         
-        // 使用智能分词提取独立的问题
-        // 匹配以动词开头的完整句子
-        const questionMatches = suggestionText.matchAll(/([分享推荐制定查看了解学习掌握帮助获取][\u4e00-\u9fa5]{4,40})/g);
+        console.log('💡 从API响应中提取到建议问题:', questions);
         
-        for (const qMatch of questionMatches) {
-          const question = qMatch[1].trim();
-          if (question.length >= 5 && question.length <= 50) {
-            // 确保问题以问号结尾
-            questions.push(question.endsWith('？') || question.endsWith('?') ? question : question + '？');
-          }
-        }
-        
-        // 从内容中移除建议部分
-        if (questions.length > 0) {
-          cleanedContent = cleanedContent.substring(0, match.index).trim();
-        }
-        
-        break;
+        return { cleanedContent, questions };
       }
     }
     
-    return { cleanedContent, questions };
+    // 如果没有特殊标记，返回原内容（兼容旧逻辑）
+    return { cleanedContent: content, questions: [] };
   };
 
   // 格式化消息内容 - 将 Markdown 转换为 HTML

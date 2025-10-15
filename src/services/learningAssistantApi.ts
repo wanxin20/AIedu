@@ -1,5 +1,6 @@
 // 学习助手 API 服务 - 使用 Coze 智能体
-const API_BASE_URL = 'https://api.coze.cn/v3/chat';
+const API_CONVERSATION_CREATE = 'https://api.coze.cn/v1/conversation/create';
+const API_CHAT = 'https://api.coze.cn/v3/chat';
 const API_TOKEN = 'pat_mbYxFHt5rsdAhzu4OzSMzQ4K6jyStyUdNFlVkJHKbj7r9B0Gmp1N98zGSk6W3wUt';
 const BOT_ID = '7559844727307812916';
 
@@ -9,6 +10,9 @@ const getUserId = (): string => {
   if (!userId) {
     userId = 'student_' + Math.random().toString(36).substring(2, 15) + Date.now();
     localStorage.setItem('coze_user_id', userId);
+    console.log('🆕 创建新的用户ID:', userId);
+  } else {
+    console.log('✅ 使用已存在的用户ID:', userId);
   }
   return userId;
 };
@@ -18,48 +22,100 @@ const getUserId = (): string => {
  * @param userMessage 用户消息
  * @param onProgress 流式输出回调函数
  * @param conversationId 会话ID（可选，用于保持上下文）
+ * @param historyMessages 历史消息（可选，用于显式传递上下文）
  * @returns Promise<{ response: string, conversationId: string }>
  */
 export async function chatWithAssistant(
   userMessage: string,
   onProgress?: (chunk: string) => void,
-  conversationId?: string
+  conversationId?: string,
+  historyMessages?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): Promise<{ response: string; conversationId: string }> {
   try {
     const userId = getUserId(); // 使用固定的用户ID
     
-    console.log('📤 开始调用学习助手 API');
-    console.log('用户消息:', userMessage);
-    console.log('Bot ID:', BOT_ID);
-    console.log('User ID:', userId);
-    console.log('会话ID:', conversationId || '新会话');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📤 开始调用学习助手 API (v3/chat)');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📝 用户消息:', userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : ''));
+    console.log('🤖 Bot ID:', BOT_ID);
+    console.log('👤 User ID:', userId);
+    console.log('💬 Conversation ID:', conversationId || '【空 - 将创建新会话】');
+    console.log('📚 历史消息数量:', historyMessages?.length || 0);
+    console.log('🔄 模式:', conversationId ? '继续现有会话' : '创建新会话');
     
-    // 构建请求体 - 根据 Coze API v3 文档
-    const requestBody: any = {
-      bot_id: BOT_ID,
-      user_id: userId, // 使用固定的用户ID以保持上下文
-      stream: true,
-      auto_save_history: true, // 自动保存历史记录
-      additional_messages: [
-        {
-          role: 'user',
-          content: userMessage,
+    // 构建 additional_messages - 包含历史消息和当前用户问题
+    // 根据 Coze API v3 文档：
+    // - additional_messages 中的最后一条消息会作为本次对话的用户输入
+    // - 其他消息均为本次对话的上下文
+    // - 只需传入 role=user 和 role=assistant, type=answer 的消息
+    const additionalMessages: any[] = [];
+    
+    // 1. 添加历史消息作为上下文（如果有）
+    if (historyMessages && historyMessages.length > 0) {
+      console.log('📜 正在构建上下文消息...');
+      for (const msg of historyMessages) {
+        const messageObj: any = {
+          role: msg.role,
+          content: msg.content,
           content_type: 'text'
+        };
+        
+        // assistant 消息需要指定 type=answer
+        if (msg.role === 'assistant') {
+          messageObj.type = 'answer';
         }
-      ]
-    };
-    
-    // 如果有会话ID，添加到请求中以继续之前的对话
-    if (conversationId) {
-      requestBody.conversation_id = conversationId;
-      console.log('📌 使用现有会话，会话ID:', conversationId);
-    } else {
-      console.log('🆕 创建新会话');
+        
+        additionalMessages.push(messageObj);
+      }
+      console.log('✅ 已添加 ' + historyMessages.length + ' 条历史消息作为上下文');
     }
     
-    console.log('📤 请求体:', JSON.stringify(requestBody, null, 2));
+    // 2. 添加当前用户消息（作为本次 Query）
+    additionalMessages.push({
+      role: 'user',
+      content: userMessage,
+      content_type: 'text'
+    });
     
-    const response = await fetch(API_BASE_URL, {
+    console.log('📋 完整消息列表长度:', additionalMessages.length);
+    console.log('   - 上下文消息:', additionalMessages.length - 1);
+    console.log('   - 当前问题: 1');
+    
+    // 构建请求体 - 根据 Coze API v3 文档
+    // 🔑 关键配置说明：
+    // - bot_id: Bot ID（固定）
+    // - user_id: 用户ID（必须保持一致以维持上下文）
+    // - conversation_id: 会话ID（用于标识会话）
+    // - auto_save_history: 自动保存历史（true）
+    // - additional_messages: 历史消息 + 当前消息
+    const requestBody: any = {
+      bot_id: BOT_ID,
+      user_id: userId,
+      stream: true,
+      auto_save_history: true,
+      additional_messages: additionalMessages
+    };
+    
+    // 注意：conversation_id 将作为 URL Query 参数传递，不放在 Body 中
+    
+    console.log('📤 完整请求体:');
+    console.log(JSON.stringify(requestBody, null, 2));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    // 🔑 关键修复：conversation_id 应该作为 URL Query 参数，而不是 Body 参数！
+    let apiUrl = API_CHAT;
+    if (conversationId) {
+      apiUrl = `${API_CHAT}?conversation_id=${conversationId}`;
+      console.log('🔧 修复：将conversation_id添加到URL Query参数');
+      console.log('   完整URL:', apiUrl);
+      // 从Body中移除conversation_id
+      delete requestBody.conversation_id;
+    }
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_TOKEN}`,
@@ -113,19 +169,24 @@ export async function chatWithAssistant(
             const data = JSON.parse(jsonStr);
             console.log('📄 解析的数据:', JSON.stringify(data).substring(0, 300));
             
-            // 提取会话ID - 从多个可能的字段中获取
-            // Coze API 可能在不同的事件类型中返回不同字段名的会话ID
-            const possibleConversationId = 
-              data.conversation_id || 
-              data.conversationId || 
-              data.id ||
-              (data.data && data.data.conversation_id) ||
-              (data.data && data.data.conversationId);
-            
-            if (possibleConversationId) {
-              if (!newConversationId || newConversationId !== possibleConversationId) {
-                newConversationId = possibleConversationId;
-                console.log('💬 获取到会话ID:', newConversationId, '从事件:', data.event || 'unknown');
+            // 提取会话ID - conversation_id 是维持上下文的关键
+            if (data.conversation_id) {
+              const apiConversationId = data.conversation_id;
+              
+              if (!newConversationId) {
+                // 首次获取会话ID
+                newConversationId = apiConversationId;
+                console.log('💬 获取到会话ID:', newConversationId);
+                
+                // 验证会话ID是否保持一致
+                if (conversationId && conversationId !== newConversationId) {
+                  console.error('❌ 警告：传递的会话ID与API返回的不一致！');
+                  console.error('   传递:', conversationId);
+                  console.error('   返回:', newConversationId);
+                  console.error('   这意味着上下文已丢失！');
+                } else if (conversationId) {
+                  console.log('✅ 会话ID一致，上下文已连接');
+                }
               }
             }
             
@@ -176,11 +237,20 @@ export async function chatWithAssistant(
       console.log('✅ 会话ID已确认，后续对话将保持上下文');
     }
     
-    // 清理和格式化响应内容
-    const cleanedText = cleanResponseText(fullText);
+    // 清理和格式化响应内容，提取建议问题
+    const { cleanedContent, suggestedQuestions } = cleanResponseText(fullText);
+    
+    // 将建议问题附加到响应内容末尾（使用特殊标记，前端会解析）
+    let finalResponse = cleanedContent || '抱歉，我暂时无法回复。请稍后再试。';
+    
+    // 如果有建议问题，使用特殊格式附加（前端会解析）
+    if (suggestedQuestions.length > 0) {
+      finalResponse += '\n\n__SUGGESTED_QUESTIONS__\n' + suggestedQuestions.join('\n__Q__\n');
+      console.log('💡 已将建议问题附加到响应中');
+    }
     
     return {
-      response: cleanedText || '抱歉，我暂时无法回复。请稍后再试。',
+      response: finalResponse,
       conversationId: newConversationId
     };
   } catch (error) {
@@ -190,43 +260,60 @@ export async function chatWithAssistant(
 }
 
 /**
- * 创建新的会话
+ * 显式创建新的会话（使用Coze Conversation API）
+ * 根据官方文档格式创建会话
  * @returns Promise<string> 返回新创建的会话ID
  */
 export async function createConversation(): Promise<string> {
   try {
     const userId = getUserId();
-    console.log('🆕 创建新会话，User ID:', userId);
+    console.log('🔧 调用Coze Conversation API创建新会话');
+    console.log('   User ID:', userId);
+    console.log('   Bot ID:', BOT_ID);
+    console.log('   API端点:', API_CONVERSATION_CREATE);
     
-    const response = await fetch('https://api.coze.cn/v1/conversation/create', {
+    // 根据官方文档的请求格式
+    const requestBody = {
+      bot_id: BOT_ID,
+      meta_data: {
+        user_id: userId
+      },
+      messages: [] // 创建空会话
+    };
+    
+    console.log('📤 请求体:', JSON.stringify(requestBody, null, 2));
+    
+    const response = await fetch(API_CONVERSATION_CREATE, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${API_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        meta_data: {
-          user_id: userId,
-          bot_id: BOT_ID
-        }
-      })
+      body: JSON.stringify(requestBody)
     });
+
+    console.log('📥 响应状态:', response.status, response.statusText);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ 创建会话失败:', errorText);
-      throw new Error(`创建会话失败: ${response.status} ${response.statusText}`);
+      console.error('❌ 创建会话API返回错误:', errorText);
+      throw new Error(`创建会话失败: ${response.status} ${response.statusText}\n${errorText}`);
     }
 
     const data = await response.json();
-    console.log('✅ 会话创建成功:', data);
+    console.log('✅ 会话创建API完整响应:', JSON.stringify(data, null, 2));
     
-    if (data.data?.id) {
-      return data.data.id;
-    } else if (data.id) {
-      return data.id;
+    // 提取会话ID - 根据API响应结构
+    const conversationId = data.data?.id || data.id || data.conversation_id;
+    
+    if (conversationId) {
+      console.log('✅ 成功创建会话，ID:', conversationId);
+      console.log('   🎯 保存此ID，后续所有消息都将在此会话中发送');
+      return conversationId;
     } else {
-      throw new Error('无法从响应中获取会话ID');
+      console.error('❌ API响应中未找到会话ID');
+      console.error('   响应数据:', data);
+      throw new Error('无法从API响应中获取会话ID');
     }
   } catch (error) {
     console.error('❌ 创建会话失败:', error);
@@ -235,15 +322,89 @@ export async function createConversation(): Promise<string> {
 }
 
 /**
- * 清理响应文本 - 移除重复内容、JSON 元数据、工具调用和思考过程
+ * 清理响应文本 - 移除重复内容、JSON 元数据、工具调用和思考过程，提取建议问题
+ * @returns { cleanedContent: string, suggestedQuestions: string[] }
  */
-function cleanResponseText(text: string): string {
+function cleanResponseText(text: string): { cleanedContent: string; suggestedQuestions: string[] } {
   let cleaned = text;
+  const suggestedQuestions: string[] = [];
   
   console.log('🔍 原始文本长度:', text.length);
   console.log('🔍 原始文本内容:', text.substring(0, 500));
   
-  // 0. 移除所有JSON格式内容（包括工具调用、插件信息、API返回等）
+  // 🔑 0. 首先提取建议问题 - 在清理 JSON 之前
+  // 匹配 generate_answer_finish JSON 后面的建议问题
+  // 使用更精确的匹配：找到 msg_type":"generate_answer_finish 的位置，然后匹配完整的 JSON 对象
+  const finishMarker = '"msg_type":"generate_answer_finish"';
+  const finishIndex = cleaned.indexOf(finishMarker);
+  
+  if (finishIndex !== -1) {
+    // 从 msg_type 开始往前找到 JSON 开始的 {
+    let jsonStart = cleaned.lastIndexOf('{', finishIndex);
+    
+    if (jsonStart !== -1) {
+      // 从 JSON 开始位置往后找到匹配的 }
+      let braceCount = 0;
+      let jsonEnd = -1;
+      
+      for (let i = jsonStart; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') {
+          braceCount++;
+        } else if (cleaned[i] === '}') {
+          braceCount--;
+          if (braceCount === 0) {
+            jsonEnd = i;
+            break;
+          }
+        }
+      }
+      
+      if (jsonEnd !== -1) {
+        // 提取 JSON 后面的文本作为建议问题
+        const questionText = cleaned.substring(jsonEnd + 1).trim();
+        console.log('💡 检测到 generate_answer_finish 后的文本:', questionText);
+        
+        if (questionText.length > 0) {
+          // 智能分割建议问题
+          // 1. 首先尝试按问号分割
+          let questions = questionText.split(/[？?]/);
+          
+          // 2. 处理每个问题片段
+          const extractedQuestions = questions
+            .map(q => q.trim())
+            .filter(q => {
+              // 过滤条件：长度在5-80字之间，且包含中文字符
+              return q.length >= 5 && q.length <= 80 && /[\u4e00-\u9fa5]/.test(q);
+            })
+            .map(q => {
+              // 清理问题文本
+              // 移除可能的 JSON 残留和特殊字符
+              q = q.replace(/[{}\[\]",;:]/g, '');
+              q = q.replace(/from_module|from_unit|null/gi, '');
+              // 移除开头的连接词
+              q = q.replace(/^(还|或者|以及|和|或)\s*/, '');
+              // 确保问题以问号结尾
+              if (!q.endsWith('？') && !q.endsWith('?')) {
+                q += '？';
+              }
+              return q.trim();
+            })
+            .filter(q => q.length >= 5 && q.length <= 80); // 再次过滤
+          
+          if (extractedQuestions.length > 0) {
+            // 限制最多3个建议问题
+            suggestedQuestions.push(...extractedQuestions.slice(0, 3));
+            console.log('✅ 提取到建议问题 (' + suggestedQuestions.length + ' 个):', suggestedQuestions);
+          }
+          
+          // 从原文中移除 JSON 和后面的建议问题部分
+          cleaned = cleaned.substring(0, jsonStart).trim();
+        }
+      }
+    }
+  }
+  
+  // 1. 移除所有JSON格式内容（包括工具调用、插件信息、API返回等）
   // 先移除完整的JSON对象（包括嵌套的）
   cleaned = cleaned.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
     // 如果JSON包含plugin、tool、api、log_id等关键词，移除
@@ -298,6 +459,48 @@ function cleanResponseText(text: string): string {
   // 5. 清理多余的空白和换行（在去重之前）
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   cleaned = cleaned.trim();
+  
+  // 🔑 5.5 检测并移除大段重复文本（在段落分割之前）
+  // 这个方法可以检测到连续重复的大段文本，即使没有段落分隔符
+  const detectAndRemoveLargeRepetition = (text: string): string => {
+    const length = text.length;
+    
+    // 只处理较长的文本
+    if (length < 100) return text;
+    
+    // 检测前半部分是否与后半部分相同或高度相似
+    const half = Math.floor(length / 2);
+    const firstHalf = text.substring(0, half).trim();
+    const secondHalf = text.substring(half).trim();
+    
+    // 如果两半几乎相同，说明整体重复
+    if (firstHalf === secondHalf) {
+      console.log('⚠️ 检测到整体重复（前后两半完全相同），移除后半部分');
+      return firstHalf;
+    }
+    
+    // 检测是否存在重复的较大段落（使用滑动窗口）
+    const minChunkSize = Math.min(50, Math.floor(length / 4)); // 最小检测块大小
+    
+    for (let chunkSize = Math.floor(length / 2); chunkSize >= minChunkSize; chunkSize -= 10) {
+      for (let i = 0; i <= length - chunkSize * 2; i++) {
+        const chunk1 = text.substring(i, i + chunkSize);
+        const chunk2 = text.substring(i + chunkSize, i + chunkSize * 2);
+        
+        // 如果找到两个相邻的相同块
+        if (chunk1 === chunk2) {
+          console.log('⚠️ 检测到重复块（长度: ' + chunkSize + '），移除重复部分');
+          // 移除第二个重复块
+          return text.substring(0, i + chunkSize) + text.substring(i + chunkSize * 2);
+        }
+      }
+    }
+    
+    return text;
+  };
+  
+  // 应用大段重复检测
+  cleaned = detectAndRemoveLargeRepetition(cleaned);
   
   // 6. 移除重复的段落和句子（增强版去重 + 相似度检测）
   // 先按段落分割
@@ -410,6 +613,10 @@ function cleanResponseText(text: string): string {
   
   console.log('🎨 清理后的文本长度:', cleaned.length);
   console.log('🎨 清理后的文本内容:', cleaned.substring(0, 500));
+  console.log('💡 建议问题数量:', suggestedQuestions.length);
   
-  return cleaned;
+  return {
+    cleanedContent: cleaned,
+    suggestedQuestions: suggestedQuestions
+  };
 }
