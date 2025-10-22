@@ -1,19 +1,10 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
+import { getActiveClasses } from '@/services/classApi';
 
-// 模拟班级数据
-const classData = [
-  { id: 1, name: '高一(1)班' },
-  { id: 2, name: '高一(2)班' },
-  { id: 3, name: '高二(1)班' },
-  { id: 4, name: '高二(2)班' },
-  { id: 5, name: '高三(1)班' },
-  { id: 6, name: '高三(2)班' },
-];
-
-// 模拟学科数据
+// 学科数据
 const subjectData = [
   { id: 1, name: '数学' },
   { id: 2, name: '语文' },
@@ -30,24 +21,37 @@ export default function TeacherRegisterStep1() {
   const navigate = useNavigate();
   const { register } = useContext(AuthContext);
   const [phone, setPhone] = useState('');
-  const [className, setClassName] = useState('');
   const [subjectName, setSubjectName] = useState('');
-  const [selectedClass, setSelectedClass] = useState<number | null>(null);
   const [selectedSubject, setSelectedSubject] = useState<number | null>(null);
+  const [className, setClassName] = useState('');
+  const [selectedClass, setSelectedClass] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showClassDropdown, setShowClassDropdown] = useState(false);
   const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
+  const [showClassDropdown, setShowClassDropdown] = useState(false);
+  const [classData, setClassData] = useState<{ id: number; name: string; grade?: string }[]>([]);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(true);
+
+  // 获取班级列表
+  useEffect(() => {
+    async function fetchClasses() {
+      try {
+        setIsLoadingClasses(true);
+        const classes = await getActiveClasses();
+        setClassData(classes);
+      } catch (error) {
+        console.error('获取班级列表失败:', error);
+        toast.error('获取班级列表失败，请刷新页面重试');
+        setClassData([]);
+      } finally {
+        setIsLoadingClasses(false);
+      }
+    }
+    fetchClasses();
+  }, []);
 
   // 验证手机号格式
   const isValidPhone = (phoneNumber: string) => {
     return /^1[3-9]\d{9}$/.test(phoneNumber);
-  };
-
-  // 处理班级选择
-  const handleClassSelect = (classId: number, className: string) => {
-    setSelectedClass(classId);
-    setClassName(className);
-    setShowClassDropdown(false);
   };
 
   // 处理学科选择
@@ -57,15 +61,17 @@ export default function TeacherRegisterStep1() {
     setShowSubjectDropdown(false);
   };
 
+  // 处理班级选择
+  const handleClassSelect = (classId: number, className: string) => {
+    setSelectedClass(classId);
+    setClassName(className);
+    setShowClassDropdown(false);
+  };
+
   // 处理下一步
   const handleNext = () => {
     if (!isValidPhone(phone)) {
       toast.error('请输入有效的手机号');
-      return;
-    }
-
-    if (!selectedClass) {
-      toast.error('请选择所在班级');
       return;
     }
 
@@ -74,13 +80,18 @@ export default function TeacherRegisterStep1() {
       return;
     }
 
+    if (!selectedClass) {
+      toast.error('请选择所在班级');
+      return;
+    }
+
     // 存储第一步数据到localStorage，供第二步使用
     localStorage.setItem('register_teacher_step1', JSON.stringify({
       phone,
-      classId: selectedClass,
-      className,
       subjectId: selectedSubject,
-      subjectName
+      subjectName,
+      classId: selectedClass,
+      className
     }));
 
     navigate('/register/teacher/step2');
@@ -129,48 +140,6 @@ export default function TeacherRegisterStep1() {
                 </div>
               </div>
               
-              {/* 班级选择 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  所在班级
-                </label>
-                <div 
-                  className="relative"
-                  onClick={() => setShowClassDropdown(!showClassDropdown)}
-                >
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i className="fa-solid fa-building text-gray-400"></i>
-                  </div>
-                  <input
-                    type="text"
-                    value={className}
-                    readOnly
-                    placeholder="请选择班级"
-                    className="w-full pl-10 pr-10 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-800 dark:text-white transition-colors cursor-pointer"
-                  />
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                    <i className={`fa-solid fa-chevron-down text-gray-400 transition-transform ${showClassDropdown ? 'rotate-180' : ''}`}></i>
-                  </div>
-                  
-                  {showClassDropdown && (
-                    <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 max-h-60 overflow-y-auto">
-                      {classData.map((cls) => (
-                        <div 
-                          key={cls.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleClassSelect(cls.id, cls.name);
-                          }}
-                          className="px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
-                        >
-                          {cls.name}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              
               {/* 学科选择 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -203,7 +172,7 @@ export default function TeacherRegisterStep1() {
                             e.stopPropagation();
                             handleSubjectSelect(subject.id, subject.name);
                           }}
-                          className="px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                          className="px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-100"
                         >
                           {subject.name}
                         </div>
@@ -213,13 +182,65 @@ export default function TeacherRegisterStep1() {
                 </div>
               </div>
               
+              {/* 班级选择 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  所在班级
+                </label>
+                <div 
+                  className="relative"
+                  onClick={() => setShowClassDropdown(!showClassDropdown)}
+                >
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <i className="fa-solid fa-building text-gray-400"></i>
+                  </div>
+                  <input
+                    type="text"
+                    value={className}
+                    readOnly
+                    placeholder="请选择班级"
+                    className="w-full pl-10 pr-10 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-800 dark:text-white transition-colors cursor-pointer"
+                  />
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                    <i className={`fa-solid fa-chevron-down text-gray-400 transition-transform ${showClassDropdown ? 'rotate-180' : ''}`}></i>
+                  </div>
+                  
+                  {showClassDropdown && (
+                    <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 max-h-60 overflow-y-auto">
+                      {isLoadingClasses ? (
+                        <div className="px-4 py-3 text-gray-500 dark:text-gray-400 text-center">
+                          <i className="fa-solid fa-spinner fa-spin mr-2"></i>加载中...
+                        </div>
+                      ) : classData.length > 0 ? (
+                        classData.map((cls) => (
+                          <div 
+                            key={cls.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClassSelect(cls.id, cls.name);
+                            }}
+                            className="px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-100"
+                          >
+                            {cls.name}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-gray-500 dark:text-gray-400 text-center">
+                          暂无可选班级
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
               {/* 下一步按钮 */}
               <button
                 type="button"
                 onClick={handleNext}
-                disabled={isLoading || !phone || !selectedClass || !selectedSubject}
+                disabled={isLoading || !phone || !selectedSubject || !selectedClass}
                 className={`w-full py-3 rounded-lg font-medium transition-colors ${
-                  isLoading || !phone || !selectedClass || !selectedSubject
+                  isLoading || !phone || !selectedSubject || !selectedClass
                     ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                     : 'bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg'
                 }`}

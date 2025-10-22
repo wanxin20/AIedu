@@ -1,67 +1,8 @@
 import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
-
-
-
-const pendingAssignments = [{
-    id: 1,
-    subject: "数学",
-    title: "函数基础练习",
-    dueDate: "2023-11-20",
-    status: "pending"
-}, {
-    id: 2,
-    subject: "语文",
-    title: "阅读理解训练",
-    dueDate: "2023-11-21",
-    status: "pending"
-}, {
-    id: 3,
-    subject: "英语",
-    title: "语法巩固练习",
-    dueDate: "2023-11-22",
-    status: "pending"
-}];
-
-const completedAssignments = [{
-    id: 101,
-    subject: "物理",
-    title: "力学基础实验报告",
-    dueDate: "2023-11-15",
-    status: "completed",
-    score: 92
-}, {
-    id: 102,
-    subject: "数学",
-    title: "三角函数练习",
-    dueDate: "2023-11-12",
-    status: "completed",
-    score: 85
-}];
-
-const recommendedResources = [{
-    id: 1,
-    name: "高一数学函数知识点总结",
-    type: "PDF",
-    subject: "数学",
-    uploader: "张老师",
-    views: 128
-}, {
-    id: 2,
-    name: "英语语法大全讲解视频",
-    type: "视频",
-    subject: "英语",
-    uploader: "李老师",
-    views: 256
-}, {
-    id: 3,
-    name: "物理力学公式推导与应用",
-    type: "PPT",
-    subject: "物理",
-    uploader: "王老师",
-    views: 95
-}];
+import { toast } from "sonner";
+import { getStudentDashboard } from "@/services/statisticsApi";
 
 export default function StudentDashboard() {
     const {
@@ -71,14 +12,45 @@ export default function StudentDashboard() {
 
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(true);
+    const [dashboardData, setDashboardData] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
     const [question, setQuestion] = useState("");
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
+    // 加载学生仪表盘数据
+    const loadDashboardData = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const response = await getStudentDashboard();
+            console.log('学生仪表盘数据:', response);
+            setDashboardData(response.data);
+        } catch (err: any) {
+            console.error('加载仪表盘数据失败:', err);
+            setError(err.message || '加载数据失败');
+            toast.error('加载数据失败: ' + (err.message || '未知错误'));
+        } finally {
             setIsLoading(false);
-        }, 1000);
+        }
+    };
 
-        return () => clearTimeout(timer);
+    useEffect(() => {
+        loadDashboardData();
+    }, []);
+
+    // 监听页面可见性，当页面重新可见时刷新数据
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                console.log('页面重新可见，刷新仪表盘数据');
+                loadDashboardData();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     useEffect(() => {
@@ -86,10 +58,6 @@ export default function StudentDashboard() {
             navigate("/");
         }
     }, [user, navigate]);
-
-    const handleSubmitAssignment = (id: number) => {
-        navigate(`/student/assignments/submit/${id}`);
-    };
 
     const handleAskQuestion = (e: React.FormEvent) => {
         e.preventDefault();
@@ -187,6 +155,15 @@ export default function StudentDashboard() {
                     <div
                         className="w-12 h-12 border-t-2 border-b-2 border-orange-500 rounded-full animate-spin mb-4"></div>
                     <p className="text-gray-600 dark:text-gray-400">加载数据中...</p>
+                </div> : error ? <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                    <i className="fa-solid fa-exclamation-triangle text-red-500 text-5xl mb-4"></i>
+                    <p className="text-gray-800 dark:text-white text-lg font-medium mb-2">数据加载失败</p>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">{error}</p>
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors">
+                        重新加载
+                    </button>
                 </div> : <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {}
                    <div className="lg:col-span-1 space-y-6">
@@ -256,40 +233,9 @@ export default function StudentDashboard() {
                             className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
                             <h3 className="font-semibold text-gray-800 dark:text-white mb-4">推荐学习资源</h3>
                             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">根据你的学习情况推荐</p>
-                            <div className="space-y-3">
-                                {recommendedResources.slice(0, 2).map(resource => <div
-                                    key={resource.id}
-                                    className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                                    {resource.type === "PDF" && <i className="fa-solid fa-file-pdf text-red-500 text-lg mr-3"></i>}
-                                    {resource.type === "视频" && <i className="fa-solid fa-file-video text-blue-500 text-lg mr-3"></i>}
-                                    {resource.type === "PPT" && <i
-                                        className="fa-solid fa-file-powerpoint text-orange-600 dark:text-orange-400 text-lg mr-3"></i>}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center">
-                                            <span
-                                                className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-400 rounded-full mr-2">
-                                                {resource.subject}
-                                            </span>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">{resource.type}</span>
-                                        </div>
-                                        <p
-                                            className="text-sm font-medium text-gray-800 dark:text-white mt-1 truncate">{resource.name}</p>
-                                        <div className="flex items-center mt-1 text-xs">
-                                            <span className="text-gray-500 dark:text-gray-400 mr-3">
-                                                <i className="fa-solid fa-user mr-1"></i>
-                                                {resource.uploader}
-                                            </span>
-                                            <span className="text-gray-500 dark:text-gray-400">
-                                                <i className="fa-solid fa-eye mr-1"></i>
-                                                {resource.views}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <button
-                                        className="ml-2 text-gray-500 hover:text-orange-600 dark:text-gray-400 dark:hover:text-orange-400 p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                                        <i className="fa-solid fa-download"></i>
-                                    </button>
-                                </div>)}
+                            <div className="text-center py-6">
+                                <i className="fa-solid fa-book-open text-gray-400 text-3xl mb-3"></i>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">暂无推荐资源</p>
                             </div>
                             <Link
                                 to="/student/resources"
@@ -315,30 +261,19 @@ export default function StudentDashboard() {
                                     </Link>
                                 </div>
                             </div>
-                            {pendingAssignments.length > 0 ? <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {pendingAssignments.map(assignment => <div
-                                    key={assignment.id}
-                                    className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                    <div className="flex items-start justify-between">
-                                        <div>
-                                            <div className="flex items-center">
-                                                <span
-                                                    className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-400 rounded-full mr-2">
-                                                    {assignment.subject}
-                                                </span>
-                                                <span className="text-sm text-red-600 dark:text-red-400 font-medium">截止日期: {assignment.dueDate}
-                                                </span>
-                                            </div>
-                                            <h4 className="text-base font-medium text-gray-800 dark:text-white mt-2">{assignment.title}</h4>
-                                            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1 line-clamp-2">请完成本次作业并按时提交。注意作业要求，认真作答，确保答案正确完整。如有疑问可在学习助手中提问。
-                                                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={() => handleSubmitAssignment(assignment.id)}
-                                            className="ml-4 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors text-sm">提交作业
-                                                                      </button>
-                                    </div>
-                                </div>)}
+                            {(dashboardData?.assignmentCount?.pending || 0) > 0 ? <div className="p-8 text-center">
+                                <div className="text-orange-600 dark:text-orange-400 mb-4">
+                                    <i className="fa-solid fa-clipboard-list text-5xl"></i>
+                                </div>
+                                <h4 className="text-lg font-medium text-gray-800 dark:text-white mb-2">
+                                    有 {dashboardData?.assignmentCount?.pending || 0} 个待完成作业
+                                </h4>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">请及时完成并提交作业</p>
+                                <Link
+                                    to="/student/assignments"
+                                    className="inline-block px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors">
+                                    查看待完成作业
+                                </Link>
                             </div> : <div className="p-8 text-center">
                                 <div
                                     className="w-16 h-16 mx-auto bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4">
@@ -353,7 +288,7 @@ export default function StudentDashboard() {
                             className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                             <div className="p-6 border-b border-gray-100 dark:border-gray-700">
                                 <div className="flex items-center justify-between">
-                                    <h3 className="font-semibold text-gray-800 dark:text-white">已完成作业</h3>
+                                    <h3 className="font-semibold text-gray-800 dark:text-white">已提交作业</h3>
                                     <Link
                                         to="/student/assignments?status=completed"
                                         className="text-orange-600 dark:text-orange-400 text-sm hover:underline flex items-center">
@@ -362,37 +297,60 @@ export default function StudentDashboard() {
                                     </Link>
                                 </div>
                             </div>
-                            {completedAssignments.length > 0 ? <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {completedAssignments.map(assignment => <div
-                                    key={assignment.id}
+                            {(dashboardData?.recentSubmissions || []).length > 0 ? <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                                {(dashboardData?.recentSubmissions || []).slice(0, 3).map((submission: any) => <div
+                                    key={submission.id}
                                     className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                                     <div className="flex items-start justify-between">
-                                        <div>
+                                        <div className="flex-1">
                                             <div className="flex items-center">
                                                 <span
-                                                    className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400 rounded-full mr-2">
-                                                    {assignment.subject}
+                                                    className={`px-2 py-1 text-xs font-medium rounded-full mr-2 ${
+                                                        submission.status === 'graded'
+                                                            ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400'
+                                                            : 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-400'
+                                                    }`}>
+                                                    {submission.status === 'graded' ? '已批改' : '已提交'}
                                                 </span>
-                                                <span className="text-sm text-gray-500 dark:text-gray-400">提交日期: {assignment.dueDate}
+                                                <span className="text-sm text-gray-500 dark:text-gray-400">
+                                                    {submission.status === 'graded' 
+                                                        ? (submission.graded_at ? new Date(submission.graded_at).toLocaleDateString('zh-CN') : '-')
+                                                        : (submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString('zh-CN') : '-')
+                                                    }
                                                 </span>
                                             </div>
-                                            <h4 className="text-base font-medium text-gray-800 dark:text-white mt-2">{assignment.title}</h4>
+                                            <h4 className="text-base font-medium text-gray-800 dark:text-white mt-2">
+                                                {submission.assignment_title || `作业 #${submission.assignment_id}`}
+                                            </h4>
+                                            {submission.subject && (
+                                                <span className="inline-block px-2 py-1 mt-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                                                    {submission.subject}
+                                                </span>
+                                            )}
                                             <div className="flex items-center mt-2">
-                                                <span
-                                                    className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-400 rounded-full mr-3">得分: {assignment.score}
-                                                </span>
-                                         <button 
-                                          onClick={() => navigate(`/student/assignments/detail/${assignment.id}`)}
-                                          className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center">
-                                          <i className="fa-solid fa-eye mr-1"></i>
-                                          查看详情
-                                        </button>
+                                                {submission.status === 'graded' && submission.score !== null && (
+                                                    <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-400 rounded-full mr-3">
+                                                        得分: {submission.score}
+                                                    </span>
+                                                )}
+                                                {submission.status === 'graded' ? (
+                                                    <button 
+                                                        onClick={() => navigate(`/student/assignments/detail/${submission.assignment_id}`)}
+                                                        className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center">
+                                                        <i className="fa-solid fa-eye mr-1"></i>
+                                                        查看详情
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-sm text-gray-500 dark:text-gray-400">等待批改中...</span>
+                                                )}
                                             </div>
                                         </div>
-                                        <div className="text-right">
-                                            <div className="text-2xl font-bold text-yellow-500">{assignment.score}</div>
-                                            <div className="text-xs text-gray-500 dark:text-gray-400">满分: 100</div>
-                                        </div>
+                                        {submission.status === 'graded' && submission.score !== null && (
+                                            <div className="text-right ml-4">
+                                                <div className="text-2xl font-bold text-yellow-500">{submission.score}</div>
+                                                <div className="text-xs text-gray-500 dark:text-gray-400">满分: 100</div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>)}
                             </div> : <div className="p-8 text-center">
@@ -400,8 +358,8 @@ export default function StudentDashboard() {
                                     className="w-16 h-16 mx-auto bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4">
                                     <i className="fa-solid fa-file-alt text-gray-400 text-2xl"></i>
                                 </div>
-                                <h4 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-1">暂无已完成作业</h4>
-                                <p className="text-gray-500 dark:text-gray-400">完成作业后，这里将显示你的作业和得分情况</p>
+                                <h4 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-1">暂无已提交作业</h4>
+                                <p className="text-gray-500 dark:text-gray-400">提交作业后，这里将显示你的作业和批改情况</p>
                             </div>}
                         </div>
                     </div>

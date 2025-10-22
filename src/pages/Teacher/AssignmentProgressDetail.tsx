@@ -3,10 +3,28 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
 import { gradeAssignmentWithStream } from "@/services/gradingApi";
+import { startAIGrading, getAIGradingStatus, acceptAIGrading, retryAIGrading, cancelAIGrading } from "@/services/aiGradingApi";
+import { getAssignmentDetail, getAssignmentSubmissions } from "@/services/assignmentApi";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+
+// 定义作业信息接口
+interface AssignmentInfo {
+  id: number;
+  title: string;
+  description: string | null;
+  subject: string;
+  deadline: string;
+  totalScore: number;
+  attachments: any[];
+  status: string;
+  createdAt: string;
+}
 
 // 定义学生作业状态接口
 interface StudentAssignment {
@@ -20,151 +38,13 @@ interface StudentAssignment {
   submitTime: string | null;
   gradeTime: string | null;
   comment: string | null;
-  attachments?: {
-    id: string;
-    name: string;
-    url: string;
-    type: string;
-  }[];
+  attachments?: any[];
+  // AI 批改字段
+  aiGradingStatus?: 'none' | 'pending' | 'processing' | 'completed' | 'failed';
+  aiComment?: string | null;
+  aiGradedAt?: string | null;
+  aiErrorMessage?: string | null;
 }
-
-// 模拟学生作业数据
-const generateStudentAssignments = (assignmentId: number, assignmentName: string): StudentAssignment[] => {
-  const students = [
-    { id: 1, name: "张三" },
-    { id: 2, name: "李四" },
-    { id: 3, name: "王五" },
-    { id: 4, name: "赵六" },
-    { id: 5, name: "孙七" },
-    { id: 6, name: "周八" },
-    { id: 7, name: "吴九" },
-    { id: 8, name: "郑十" },
-    { id: 9, name: "钱十一" },
-    { id: 10, name: "孙十二" },
-    { id: 11, name: "李十三" },
-    { id: 12, name: "周十四" },
-    { id: 13, name: "吴十五" },
-    { id: 14, name: "郑十六" },
-    { id: 15, name: "钱十七" }
-  ];
-
-  // 根据不同的作业ID生成不同的完成情况
-  let submittedCount = 10;
-  let gradedCount = 5;
-  
-  if (assignmentId === 2) {
-    submittedCount = 8;
-    gradedCount = 3;
-  } else if (assignmentId === 3) {
-    submittedCount = 14;
-    gradedCount = 12;
-  } else if (assignmentId === 4) {
-    submittedCount = 6;
-    gradedCount = 2;
-  } else if (assignmentId === 5) {
-    submittedCount = 4;
-    gradedCount = 1;
-  } else if (assignmentId === 6) {
-    submittedCount = 2;
-    gradedCount = 0;
-  }
-
-  return students.map((student, index) => {
-    let status: 'pending' | 'submitted' | 'graded' = 'pending';
-    let score: number | null = null;
-    let submitTime: string | null = null;
-    let gradeTime: string | null = null;
-    let comment: string | null = null;
-    let attachments: any[] = [];
-
-    if (index < submittedCount) {
-      status = index < gradedCount ? 'graded' : 'submitted';
-      submitTime = "2025-09-08 10:30:00";
-      // 模拟学生上传的附件
-      attachments = [
-        { 
-          id: `att-${student.id}-1`, 
-          name: `作业提交-${student.name}.jpg`, 
-          url: "http://a.gptpro.cn/local_storage/opencoze/tos-cn-i-v4nquku3lp/e327feee-ad14-45d6-964a-5fdedb007e35.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20251011%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20251011T031920Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ea7353b12946736b2648c6243f7fc5f84dd8016f0452e16327ee31ef0cf4a333&x-wf-file_name=706c26f526c6c06d39eed532d1b1d163.jpg", 
-          type: "image" 
-        }
-      ];
-      if (status === 'graded') {
-        score = Math.floor(Math.random() * 20) + 80; // 80-100分之间的随机分数
-        gradeTime = "2025-09-08 14:15:00";
-        comment = "整体表现良好，知识点掌握扎实，但在一些细节问题上还需要加强。";
-      }
-    }
-
-    return {
-      id: index + 1,
-      studentId: student.id,
-      studentName: student.name,
-      assignmentId,
-      assignmentName,
-      status,
-      score,
-      submitTime,
-      gradeTime,
-      comment,
-      attachments
-    };
-  });
-};
-
-// 模拟作业信息
-const getAssignmentInfo = (assignmentId: number) => {
-  const assignments = [
-    { 
-      id: 1, 
-      name: "高中数学函数基础练习", 
-      subject: "数学", 
-      assignedDate: "2025-09-01", 
-      dueDate: "2025-09-10", 
-      description: "本作业涵盖函数的基本概念、性质及应用，旨在帮助学生巩固函数相关知识，提高解题能力。",
-      attachments: [
-        { id: "att1", name: "函数基础知识点.pdf", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Study%20Material%20PDF&sign=bc8d80ff84a40d1073c6e6278aac6c81", type: "pdf" }
-      ]
-    },
-    { 
-      id: 2, 
-      name: "物理力学实验报告", 
-      subject: "物理", 
-      assignedDate: "2025-09-02", 
-      dueDate: "2025-09-12", 
-      description: "本次实验要求学生完成牛顿力学定律的验证实验，并提交详细的实验报告，包括实验目的、原理、步骤、数据记录与分析等内容。",
-      attachments: [
-        { id: "att2", name: "实验指导书.pdf", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Experiment%20Guide%20PDF&sign=b68e905d7770cdd530fc66118494ab8c", type: "pdf" }
-      ]
-    },
-    { 
-      id: 3, 
-      name: "英语阅读理解训练", 
-      subject: "英语", 
-      assignedDate: "2025-09-03", 
-      dueDate: "2025-09-15", 
-      description: "通过多篇不同题材的阅读理解文章，训练学生的阅读速度、理解能力和词汇量，提高英语综合能力。",
-      attachments: [
-        { id: "att3", name: "阅读材料集合.pdf", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Materials%20PDF&sign=93010a07eb0bc912bb9446e2a9cf8149", type: "pdf" }
-      ]
-    },
-    { 
-      id: 4, 
-      name: "化学元素周期表练习", 
-      subject: "化学", 
-      assignedDate: "2025-09-05", 
-      dueDate: "2025-09-18", 
-      description: "本作业要求学生掌握元素周期表的结构、元素性质的周期性变化规律，并能够应用这些知识解决相关问题。",
-      attachments: [
-        { id: "att4", name: "元素周期表高清版.jpg", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Periodic%20Table%20of%20Elements&sign=bc1caba46953572608abb21569bc7152", type: "image" }
-      ]
-    },
-    { id: 5, name: "历史事件时间轴制作", subject: "历史", assignedDate: "2025-09-06", dueDate: "2025-09-20", description: "学生需要收集指定历史时期的重要事件资料，制作详细的时间轴，梳理历史发展脉络，培养历史思维能力。" },
-    { id: 6, name: "地理气候类型分析", subject: "地理", assignedDate: "2025-09-08", dueDate: "2025-09-25", description: "本作业要求学生分析世界主要气候类型的分布、特点、成因及其对人类活动的影响，培养地理分析能力。" }
-  ];
-  
-  return assignments.find(a => a.id === assignmentId) || assignments[0];
-};
 
 export default function AssignmentProgressDetail() {
   const { user, logout } = useContext(AuthContext);
@@ -173,7 +53,7 @@ export default function AssignmentProgressDetail() {
   const assignmentId = parseInt(params.id || '1', 10);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [assignmentInfo, setAssignmentInfo] = useState<any>(null);
+  const [assignmentInfo, setAssignmentInfo] = useState<AssignmentInfo | null>(null);
   const [studentAssignments, setStudentAssignments] = useState<StudentAssignment[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'graded'>('pending');
   const [showGradeModal, setShowGradeModal] = useState(false);
@@ -199,6 +79,7 @@ export default function AssignmentProgressDetail() {
   // 图片预览相关状态
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageScale, setImageScale] = useState(1);
+  const [error, setError] = useState<string | null>(null);
 
   // 自动滚动到流式输出底部
   useEffect(() => {
@@ -207,24 +88,98 @@ export default function AssignmentProgressDetail() {
     }
   }, [streamingText, isStreaming]);
 
-  // 模拟数据加载
+  // 加载作业详情和提交列表
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const info = getAssignmentInfo(assignmentId);
-      setAssignmentInfo(info);
-      
-      const assignments = generateStudentAssignments(assignmentId, info.name);
-      setStudentAssignments(assignments);
-      
-      // 计算统计数据
-      setTotalStudents(assignments.length);
-      setSubmittedCount(assignments.filter(a => a.status !== 'pending').length);
-      setPendingCount(assignments.filter(a => a.status === 'pending').length);
-      
-      setIsLoading(false);
-    }, 800);
+    const loadData = async () => {
+      if (!assignmentId) {
+        setError('缺少作业ID');
+        setIsLoading(false);
+        return;
+      }
 
-    return () => clearTimeout(timer);
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // 并行加载作业详情和提交列表
+        const [assignmentRes, submissionsRes] = await Promise.all([
+          getAssignmentDetail(assignmentId),
+          getAssignmentSubmissions(assignmentId)
+        ]);
+
+        if (assignmentRes.code === 200) {
+          setAssignmentInfo(assignmentRes.data);
+        } else {
+          throw new Error(assignmentRes.message || '获取作业信息失败');
+        }
+
+        if (submissionsRes.code === 200) {
+          const submissions = submissionsRes.data || [];
+          // 转换提交数据为组件需要的格式
+          const formattedSubmissions: StudentAssignment[] = submissions.map((item: any) => {
+            // 处理 attachments 字段 - 确保它是一个对象数组
+            let attachments = [];
+            if (item.attachments) {
+              if (Array.isArray(item.attachments)) {
+                // 如果是数组，检查元素是字符串还是对象
+                attachments = item.attachments.map((att: any, index: number) => {
+                  if (typeof att === 'string') {
+                    // 如果是字符串（URL），转换为对象格式
+                    return {
+                      id: `attachment-${item.id}-${index}`,
+                      url: att,
+                      type: 'image', // 默认假设是图片
+                      name: att.split('/').pop() || `附件${index + 1}`
+                    };
+                  }
+                  // 如果已经是对象，确保有 id 字段
+                  return {
+                    id: att.id || `attachment-${item.id}-${index}`,
+                    ...att
+                  };
+                });
+              }
+            }
+
+            return {
+              id: item.id,
+              studentId: item.studentId,
+              studentName: item.studentName || '未知学生',
+              assignmentId: item.assignmentId,
+              assignmentName: assignmentRes.data.title,
+              status: item.status,
+              score: item.score,
+              submitTime: item.submittedAt,
+              gradeTime: item.gradedAt,
+              comment: item.comment,
+              attachments: attachments,
+              // AI 批改字段
+              aiGradingStatus: item.aiGradingStatus || 'none',
+              aiComment: item.aiComment,
+              aiGradedAt: item.aiGradedAt,
+              aiErrorMessage: item.aiErrorMessage
+            };
+          });
+
+          setStudentAssignments(formattedSubmissions);
+
+          // 计算统计数据
+          setTotalStudents(formattedSubmissions.length);
+          setSubmittedCount(formattedSubmissions.filter(a => a.status !== 'pending').length);
+          setPendingCount(formattedSubmissions.filter(a => a.status === 'pending').length);
+        } else {
+          throw new Error(submissionsRes.message || '获取提交列表失败');
+        }
+      } catch (err: any) {
+        console.error('加载数据失败:', err);
+        setError(err.message || '加载数据失败');
+        toast.error(err.message || '加载数据失败');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
   }, [assignmentId]);
 
   // 权限检查
@@ -270,7 +225,14 @@ export default function AssignmentProgressDetail() {
   // 处理批改作业
   const handleGradeAssignment = (studentAssignment: StudentAssignment) => {
     setCurrentAssignment(studentAssignment);
-    setComment(studentAssignment.comment || '');
+    
+    // 如果有AI批改结果，优先使用AI批改的评语
+    if (studentAssignment.aiGradingStatus === 'completed' && studentAssignment.aiComment) {
+      setComment(studentAssignment.aiComment);
+    } else {
+      setComment(studentAssignment.comment || '');
+    }
+    
     setScore(studentAssignment.score ? studentAssignment.score.toString() : '');
     setShowGradeModal(true);
   };
@@ -282,7 +244,7 @@ export default function AssignmentProgressDetail() {
     handleResetGrading(); // 重置批改相关状态
   };
 
-    // 处理自动生成批改
+    // 处理自动生成批改（异步后台批改）
   const handleAutoGenerateGrade = async () => {
     if (!currentAssignment) {
       toast.error('请选择作业');
@@ -295,50 +257,35 @@ export default function AssignmentProgressDetail() {
       return;
     }
     
-    // 获取第一个图片附件
-    const imageAttachment = currentAssignment.attachments.find(att => att.type === 'image');
-    if (!imageAttachment) {
-      toast.error('未找到作业图片');
-      return;
-    }
-    
     try {
-      // 显示加载状态
       setIsSubmitting(true);
-      setIsStreaming(true);
-      setStreamingText('');
       
-      toast.info('🤖 正在连接 AI 批改系统...', {
+      toast.info('🤖 正在启动 AI 批改任务...', {
         duration: 2000,
       });
       
-      // 调用 Coze API 进行批改（流式输出）
-      const result = await gradeAssignmentWithStream(
-        imageAttachment.url,
-        (chunk) => {
-          // 流式输出回调 - 实时显示批改过程
-          setStreamingText(prev => prev + chunk);
-        }
-      );
+      // 调用后端异步批改 API
+      await startAIGrading(currentAssignment.id);
       
-      // 批改完成
-      setIsStreaming(false);
-      // 直接显示 AI 返回的完整文本
-      setComment(result.comment);
-      setIsSubmitting(false);
-      setShowAutoGradeButton(false); // 自动批改完成后隐藏按钮
-      
-      toast.success('✅ AI 批改完成！', {
-        duration: 3000,
+      toast.success('✅ AI 批改任务已启动，可以关闭窗口继续其他操作', {
+        duration: 4000,
         position: 'top-right'
       });
-    } catch (error) {
-      console.error('自动批改失败:', error);
-      setIsSubmitting(false);
-      setIsStreaming(false);
-      setStreamingText('');
       
-      toast.error('❌ 批改失败，请稍后重试', {
+      // 关闭批改模态框
+      setIsSubmitting(false);
+      setShowGradeModal(false);
+      setCurrentAssignment(null);
+      handleResetGrading();
+      
+      // 刷新列表以显示批改状态
+      window.location.reload();
+      
+    } catch (error) {
+      console.error('启动批改失败:', error);
+      setIsSubmitting(false);
+      
+      toast.error('❌ 启动批改失败，请稍后重试', {
         description: error instanceof Error ? error.message : '未知错误',
         duration: 4000,
       });
@@ -368,7 +315,7 @@ export default function AssignmentProgressDetail() {
       }
       
       // 根据学科生成相关题目
-      const subject = assignmentInfo.subject;
+      const subject = assignmentInfo?.subject || '数学';
       let problems = [];
       
       // 模拟生成不同学科的专项练习题目
@@ -459,7 +406,7 @@ export default function AssignmentProgressDetail() {
     // 模拟生成延迟
     setTimeout(() => {
       // 根据作业主题和班级整体表现生成专项练习
-      const subject = assignmentInfo.subject;
+      const subject = assignmentInfo?.subject || '数学';
       let problems = generateClassPracticeProblems(subject);
       
       setClassPracticeProblems(problems);
@@ -468,8 +415,8 @@ export default function AssignmentProgressDetail() {
     }, 1500);
   };
 
-  // 处理提交批改
-  const handleSubmitGrade = () => {
+  // 处理提交批改（采纳AI批改或手动批改）
+  const handleSubmitGrade = async () => {
     if (!currentAssignment || !score) {
       toast.error('请填写得分');
       return;
@@ -477,39 +424,104 @@ export default function AssignmentProgressDetail() {
 
     setIsSubmitting(true);
     
-    // 模拟提交延迟
-    setTimeout(() => {
-      const updatedAssignments = studentAssignments.map(assignment => {
-        if (assignment.id === currentAssignment.id) {
-          return {
-            ...assignment,
-            score: parseInt(score, 10),
-            comment: comment,
-            status: 'graded' as const,
-            gradeTime: new Date().toLocaleString('zh-CN')
-          };
-        }
-        return assignment;
-      });
+    try {
+      // 如果是采纳AI批改结果
+      if (currentAssignment.aiGradingStatus === 'completed') {
+        await acceptAIGrading(currentAssignment.id, parseInt(score, 10));
+        toast.success('✅ 批改已提交');
+      } else {
+        // 手动批改（这里暂时用模拟，实际应该调用后端API）
+        // TODO: 实现手动批改的API
+        toast.success('批改已提交');
+      }
       
-      setStudentAssignments(updatedAssignments);
       setIsSubmitting(false);
       setShowGradeModal(false);
-      // 重置批改状态
       handleResetGrading();
-      // 更新统计数据
-      setSubmittedCount(prev => prev - 1);
-      setPendingCount(prev => prev + 1);
-      toast.success('批改已提交');
       
-      // 如果已经生成了专项练习，给学生创建新作业
-      if (practiceProblems.length > 0) {
-        // 模拟创建新作业的延迟
-        setTimeout(() => {
-          toast.success(`已为 ${currentAssignment.studentName} 创建专项练习作业`);
-        }, 500);
-      }
-    }, 800);
+      // 刷新列表
+      window.location.reload();
+      
+    } catch (error) {
+      console.error('提交批改失败:', error);
+      setIsSubmitting(false);
+      toast.error('提交失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    }
+  };
+
+  // 处理取消AI批改
+  const handleCancelAIGrading = async () => {
+    if (!currentAssignment) {
+      toast.error('请选择作业');
+      return;
+    }
+
+    if (!confirm('确定要取消 AI 批改吗？')) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      
+      await cancelAIGrading(currentAssignment.id);
+      
+      toast.success('✅ AI 批改已取消');
+      
+      // 关闭批改模态框并刷新列表
+      setIsSubmitting(false);
+      setShowGradeModal(false);
+      setCurrentAssignment(null);
+      handleResetGrading();
+      
+      window.location.reload();
+      
+    } catch (error) {
+      console.error('取消批改失败:', error);
+      setIsSubmitting(false);
+      
+      toast.error('❌ 取消批改失败', {
+        description: error instanceof Error ? error.message : '未知错误',
+      });
+    }
+  };
+
+  // 处理重新AI批改
+  const handleRetryAIGrading = async () => {
+    if (!currentAssignment) {
+      toast.error('请选择作业');
+      return;
+    }
+
+    if (!confirm('确定要重新进行AI批改吗？之前的批改结果将被覆盖。')) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      
+      toast.info('🔄 正在重新启动 AI 批改...', {
+        duration: 2000,
+      });
+      
+      await retryAIGrading(currentAssignment.id);
+      
+      toast.success('✅ AI 批改任务已重新启动', {
+        duration: 3000,
+      });
+      
+      setIsSubmitting(false);
+      setShowGradeModal(false);
+      setCurrentAssignment(null);
+      handleResetGrading();
+      
+      // 刷新列表
+      window.location.reload();
+      
+    } catch (error) {
+      console.error('重新批改失败:', error);
+      setIsSubmitting(false);
+      toast.error('重新批改失败: ' + (error instanceof Error ? error.message : '未知错误'));
+    }
   };
 
   // 处理提交班级专项练习
@@ -597,9 +609,9 @@ export default function AssignmentProgressDetail() {
   };
 
   // 处理查看已批改作业详情
-  const handleViewGradedDetails = (studentAssignmentId: number) => {
+  const handleViewGradedDetails = (submissionId: number) => {
     // 跳转到已批改作业详情页面
-    navigate(`/teacher/assignments/detail/${assignmentId}?studentId=${studentAssignmentId}`);
+    navigate(`/teacher/assignments/detail/${assignmentId}?submissionId=${submissionId}`);
   };
 
   // Markdown 渲染组件
@@ -628,8 +640,8 @@ export default function AssignmentProgressDetail() {
         dark:prose-th:bg-gray-800 dark:prose-th:border-gray-700
         dark:prose-td:border-gray-700">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw, rehypeSanitize]}
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
         >
           {content}
         </ReactMarkdown>
@@ -738,10 +750,10 @@ export default function AssignmentProgressDetail() {
             {/* 作业信息卡片 */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
                <div className="mb-4">
-                <h3 className="text-xl font-semibold text-gray-800 dark:text-white">{assignmentInfo.name}</h3>
-                <p className="text-gray-600 dark:text-gray-300 mt-2">{assignmentInfo.description}</p>
+                <h3 className="text-xl font-semibold text-gray-800 dark:text-white">{assignmentInfo?.title || '作业详情'}</h3>
+                <p className="text-gray-600 dark:text-gray-300 mt-2">{assignmentInfo?.description || '无描述'}</p>
                 {/* 参考附件部分 */}
-                {(assignmentInfo.attachments && assignmentInfo.attachments.length > 0) && (
+                {(assignmentInfo?.attachments && assignmentInfo.attachments.length > 0) && (
                   <div className="mt-6">
                     <h4 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">参考附件</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -772,7 +784,7 @@ export default function AssignmentProgressDetail() {
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <h3 className="text-xl font-semibold text-gray-800 dark:text-white">
-                班级专项练习题 - {assignmentInfo.subject}
+                班级专项练习题 - {assignmentInfo?.subject || ''}
               </h3>
               <button 
                 onClick={handleCloseClassPracticeModal}
@@ -846,7 +858,7 @@ export default function AssignmentProgressDetail() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">所属学科</p>
-                    <p className="text-base font-medium text-gray-900 dark:text-white">{assignmentInfo.subject}</p>
+                    <p className="text-base font-medium text-gray-900 dark:text-white">{assignmentInfo?.subject || '-'}</p>
                   </div>
                 </div>
                 <div className="flex items-center">
@@ -855,7 +867,9 @@ export default function AssignmentProgressDetail() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">布置日期</p>
-                    <p className="text-base font-medium text-gray-900 dark:text-white">{assignmentInfo.assignedDate}</p>
+                    <p className="text-base font-medium text-gray-900 dark:text-white">
+                      {assignmentInfo?.createdAt ? new Date(assignmentInfo.createdAt).toLocaleDateString('zh-CN') : '-'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center">
@@ -864,7 +878,9 @@ export default function AssignmentProgressDetail() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">截止日期</p>
-                    <p className="text-base font-medium text-gray-900 dark:text-white">{assignmentInfo.dueDate}</p>
+                    <p className="text-base font-medium text-gray-900 dark:text-white">
+                      {assignmentInfo?.deadline ? new Date(assignmentInfo.deadline).toLocaleString('zh-CN') : '-'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -943,6 +959,9 @@ export default function AssignmentProgressDetail() {
                     <tr>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">序号</th>
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">学生姓名</th>
+                      {activeTab === 'pending' && (
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">AI批改状态</th>
+                      )}
                       {activeTab === 'graded' && (
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">得分</th>
                       )}
@@ -962,6 +981,30 @@ export default function AssignmentProgressDetail() {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm font-medium text-gray-900 dark:text-white">{assignment.studentName}</div>
                           </td>
+                          {activeTab === 'pending' && (
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              {assignment.aiGradingStatus === 'pending' || assignment.aiGradingStatus === 'processing' ? (
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-400 flex items-center w-fit">
+                                  <i className="fa-solid fa-spinner fa-spin mr-1"></i>
+                                  {assignment.aiGradingStatus === 'pending' ? '等待批改' : '批改中'}
+                                </span>
+                              ) : assignment.aiGradingStatus === 'completed' ? (
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400 flex items-center w-fit">
+                                  <i className="fa-solid fa-check-circle mr-1"></i>
+                                  批改完成
+                                </span>
+                              ) : assignment.aiGradingStatus === 'failed' ? (
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-400 flex items-center w-fit">
+                                  <i className="fa-solid fa-exclamation-circle mr-1"></i>
+                                  批改失败
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                                  未批改
+                                </span>
+                              )}
+                            </td>
+                          )}
                           {activeTab === 'graded' && (
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-900 dark:text-gray-100 font-medium">{assignment.score}</div>
@@ -974,13 +1017,36 @@ export default function AssignmentProgressDetail() {
                           )}
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             {activeTab === 'pending' ? (
-                              <button 
-                                onClick={() => handleGradeAssignment(assignment)}
-                                className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 flex items-center"
-                              >
-                                <i className="fa-solid fa-check-to-slot mr-1"></i>
-                                <span>批改</span>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => handleGradeAssignment(assignment)}
+                                  className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 flex items-center"
+                                >
+                                  <i className="fa-solid fa-check-to-slot mr-1"></i>
+                                  <span>批改</span>
+                                </button>
+                                {(assignment.aiGradingStatus === 'pending' || assignment.aiGradingStatus === 'processing') && (
+                                  <button 
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (confirm('确定要取消 AI 批改吗？')) {
+                                        try {
+                                          await cancelAIGrading(assignment.id);
+                                          toast.success('✅ AI 批改已取消');
+                                          window.location.reload();
+                                        } catch (error) {
+                                          toast.error('❌ 取消失败: ' + (error instanceof Error ? error.message : '未知错误'));
+                                        }
+                                      }
+                                    }}
+                                    className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 flex items-center text-xs"
+                                    title="取消 AI 批改"
+                                  >
+                                    <i className="fa-solid fa-times mr-1"></i>
+                                    <span>取消</span>
+                                  </button>
+                                )}
+                              </div>
                             ) : (
                               <button 
                                 onClick={() => handleViewGradedDetails(assignment.id)}
@@ -1032,6 +1098,48 @@ export default function AssignmentProgressDetail() {
             </div>
             
             <div className="flex-1 overflow-auto p-6 space-y-6">
+              {/* AI 批改状态提示 */}
+              {currentAssignment.aiGradingStatus === 'completed' && (
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 flex items-start">
+                  <i className="fa-solid fa-circle-check text-green-600 dark:text-green-400 text-xl mr-3 mt-0.5"></i>
+                  <div className="flex-1">
+                    <h5 className="font-semibold text-green-800 dark:text-green-300 mb-1">AI 批改已完成</h5>
+                    <p className="text-sm text-green-700 dark:text-green-400">
+                      AI 已完成批改，您可以查看评语，填写分数后提交正式批改，或选择重新进行 AI 批改。
+                    </p>
+                    {currentAssignment.aiGradedAt && (
+                      <p className="text-xs text-green-600 dark:text-green-500 mt-2">
+                        完成时间: {new Date(currentAssignment.aiGradedAt).toLocaleString('zh-CN')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {(currentAssignment.aiGradingStatus === 'pending' || currentAssignment.aiGradingStatus === 'processing') && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 flex items-start">
+                  <i className="fa-solid fa-spinner fa-spin text-blue-600 dark:text-blue-400 text-xl mr-3 mt-0.5"></i>
+                  <div className="flex-1">
+                    <h5 className="font-semibold text-blue-800 dark:text-blue-300 mb-1">AI 批改进行中</h5>
+                    <p className="text-sm text-blue-700 dark:text-blue-400">
+                      AI 正在批改该作业，请稍后查看结果...
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {currentAssignment.aiGradingStatus === 'failed' && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-start">
+                  <i className="fa-solid fa-circle-exclamation text-red-600 dark:text-red-400 text-xl mr-3 mt-0.5"></i>
+                  <div className="flex-1">
+                    <h5 className="font-semibold text-red-800 dark:text-red-300 mb-1">AI 批改失败</h5>
+                    <p className="text-sm text-red-700 dark:text-red-400">
+                      {currentAssignment.aiErrorMessage || 'AI 批改过程中出现错误，您可以重新尝试或手动批改。'}
+                    </p>
+                  </div>
+                </div>
+              )}
+              
               {/* 学生作业附件 */}
               <div>
                 <h4 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">学生作业附件 ({currentAssignment.attachments ? currentAssignment.attachments.length : 0})</h4>
@@ -1228,26 +1336,132 @@ export default function AssignmentProgressDetail() {
                   </div>
                 </div>
               )}
+              
+              {/* 批改表单 */}
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="score" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    得分 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    id="score"
+                    value={score}
+                    onChange={(e) => setScore(e.target.value)}
+                    min="0"
+                    max="100"
+                    placeholder="请输入得分 (0-100)"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+                
+                <div>
+                  <label htmlFor="comment" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    批改评语
+                  </label>
+                  <textarea
+                    id="comment"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={6}
+                    placeholder="请输入批改评语..."
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {currentAssignment.aiGradingStatus === 'completed' ? 
+                      'AI 已生成批改评语，您可以修改后提交' : 
+                      '您可以手动输入评语，或使用 AI 智能批改'}
+                  </p>
+                </div>
+              </div>
             </div>
             
-             <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-center">
-              <button
-                onClick={handleSubmitGrade}
-                disabled={isSubmitting || !score}
-                className="px-8 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 transition-colors max-w-xs"
-              >
-                {isSubmitting ? (
-                  <>
-                    <i className="fa-solid fa-spinner fa-spin mr-2"></i>
-                    提交中...
-                  </>
-                ) : (
-                  <>
-                    <i className="fa-solid fa-check mr-2"></i>
-                    提交批改
-                  </>
-                )}
-              </button>
+             <div className="p-6 border-t border-gray-200 dark:border-gray-700">
+              {/* 根据AI批改状态显示不同的按钮组合 */}
+              {currentAssignment.aiGradingStatus === 'completed' ? (
+                // AI批改完成：显示重新批改和提交批改按钮
+                <div className="flex justify-center gap-4">
+                  <button
+                    onClick={handleRetryAIGrading}
+                    disabled={isSubmitting}
+                    className="px-6 py-3 border-2 border-blue-500 dark:border-blue-600 rounded-lg shadow-sm text-base font-medium text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-all"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                        处理中...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fa-solid fa-rotate mr-2"></i>
+                        重新批改
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleSubmitGrade}
+                    disabled={isSubmitting || !score}
+                    className="px-8 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 transition-all"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                        提交中...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fa-solid fa-check mr-2"></i>
+                        采纳并提交
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : (currentAssignment.aiGradingStatus === 'pending' || currentAssignment.aiGradingStatus === 'processing') ? (
+                // AI批改进行中：显示提示信息和取消按钮
+                <div className="flex flex-col items-center">
+                  <div className="text-center text-gray-500 dark:text-gray-400 mb-4">
+                    <i className="fa-solid fa-spinner fa-spin text-2xl mb-2"></i>
+                    <p className="mb-2">AI 批改正在进行中，请稍后再查看...</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">或者您可以取消此次批改</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCancelAIGrading}
+                    disabled={isSubmitting}
+                    className="px-6 py-2 border border-red-500 dark:border-red-600 rounded-lg text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 transition-all"
+                  >
+                    <i className="fa-solid fa-times mr-2"></i>
+                    取消批改
+                  </button>
+                  <button
+                    onClick={handleCloseGradeModal}
+                    className="px-6 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+                  >
+                    关闭窗口
+                  </button>
+                </div>
+              ) : (
+                // 未批改或批改失败：显示普通提交按钮
+                <div className="flex justify-center">
+                  <button
+                    onClick={handleSubmitGrade}
+                    disabled={isSubmitting || !score}
+                    className="px-8 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 transition-all"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                        提交中...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fa-solid fa-check mr-2"></i>
+                        提交批改
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

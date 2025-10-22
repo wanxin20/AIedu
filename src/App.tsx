@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { AuthContext } from '@/contexts/authContext';
+import { getCurrentUser, logout as logoutApi } from '@/services/authApi';
+import { toast } from 'sonner';
 import RoleSelect from "@/pages/Login/RoleSelect";
 import PhoneLogin from "@/pages/Login/PhoneLogin";
 import TeacherRegisterStep1 from "@/pages/Login/TeacherRegisterStep1";
@@ -38,51 +40,108 @@ const mockUserData = {
 
 export default function App() {
   const [user, setUser] = useState(mockUserData);
+  const [isInitializing, setIsInitializing] = useState(true);
 
-  // 从本地存储加载用户状态
+  // 应用启动时验证 token 并恢复登录状态
   useEffect(() => {
-    const savedUser = localStorage.getItem('smartTeachingAssistantUser');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
+    const initAuth = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        
+        if (token) {
+          // 有 token，验证并获取用户信息
+          const response = await getCurrentUser();
+          
+          if (response.code === 200 && response.data) {
+            // Token 有效，恢复用户状态
+            const userData = {
+              isAuthenticated: true,
+              role: response.data.role as any,
+              phone: response.data.phone,
+              name: response.data.name
+            };
+            
+            setUser(userData);
+            localStorage.setItem('smartTeachingAssistantUser', JSON.stringify(userData));
+          } else {
+            // Token 无效，清除所有数据
+            handleInvalidToken();
+          }
+        } else {
+          // 没有 token，检查是否有旧的用户数据
+          const savedUser = localStorage.getItem('smartTeachingAssistantUser');
+          if (savedUser) {
+            // 清除旧数据
+            localStorage.removeItem('smartTeachingAssistantUser');
+          }
+        }
+      } catch (error) {
+        console.error('初始化认证失败:', error);
+        // 认证失败，清除所有数据
+        handleInvalidToken();
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+    
+    initAuth();
   }, []);
 
-  // 保存用户状态到本地存储
+  // 处理无效 token
+  const handleInvalidToken = () => {
+    setUser(mockUserData);
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('smartTeachingAssistantUser');
+  };
+
+  // 保存用户状态到本地存储（仅在用户已认证时）
   useEffect(() => {
-    localStorage.setItem('smartTeachingAssistantUser', JSON.stringify(user));
+    if (user.isAuthenticated) {
+      localStorage.setItem('smartTeachingAssistantUser', JSON.stringify(user));
+    }
   }, [user]);
 
   const login = (role, phone, name) => {
-    setUser({
+    // 注意：实际的登录应该在 PhoneLogin 组件中调用 authApi.loginWithPassword
+    // 这里只是更新上下文状态（登录成功后由 API 调用）
+    const userData = {
       isAuthenticated: true,
       role,
       phone,
       name
-    });
+    };
+    setUser(userData);
+    localStorage.setItem('smartTeachingAssistantUser', JSON.stringify(userData));
   };
 
   const register = (role, phone, name, password, classId, subject) => {
-    // 模拟注册成功后自动登录
-    setUser({
+    // 注意：实际的注册应该在注册组件中调用 authApi.register
+    // 这里只是更新上下文状态（注册成功后由 API 调用）
+    const userData = {
       isAuthenticated: true,
       role,
       phone,
       name
-    });
-    
-    // 存储密码到本地存储（实际应用中应该存储加密后的密码或令牌）
-    localStorage.setItem(`user_${phone}_password`, password);
-    
-    // 存储用户班级和学科信息
-    localStorage.setItem(`user_${phone}_class`, classId.toString());
-    if (subject) {
-      localStorage.setItem(`user_${phone}_subject`, subject);
-    }
+    };
+    setUser(userData);
+    localStorage.setItem('smartTeachingAssistantUser', JSON.stringify(userData));
   };
 
-  const logout = () => {
-    setUser(mockUserData);
-    localStorage.removeItem('smartTeachingAssistantUser');
+  const logout = async () => {
+    try {
+      // 调用后端登出接口
+      await logoutApi();
+    } catch (error) {
+      console.error('登出失败:', error);
+    } finally {
+      // 无论成功失败都清除本地数据
+      setUser(mockUserData);
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('smartTeachingAssistantUser');
+      toast.success('已退出登录');
+    }
   };
 
   // 受保护的路由组件
@@ -122,13 +181,26 @@ export default function App() {
     return children;
   };
 
+  // 应用初始化中，显示加载状态
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">正在加载...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AuthContext.Provider
       value={{ 
         isAuthenticated: user.isAuthenticated, 
         user,
         login, 
-        logout 
+        logout,
+        register
       }}
     >
       <Routes>

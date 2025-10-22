@@ -1,17 +1,8 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
-
-// 模拟班级数据
-const classData = [
-  { id: 1, name: '高一(1)班' },
-  { id: 2, name: '高一(2)班' },
-  { id: 3, name: '高二(1)班' },
-  { id: 4, name: '高二(2)班' },
-  { id: 5, name: '高三(1)班' },
-  { id: 6, name: '高三(2)班' },
-];
+import { getActiveClasses } from '@/services/classApi';
 
 export default function StudentRegisterStep1() {
   const navigate = useNavigate();
@@ -21,6 +12,26 @@ export default function StudentRegisterStep1() {
   const [selectedClass, setSelectedClass] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showClassDropdown, setShowClassDropdown] = useState(false);
+  const [classData, setClassData] = useState<{ id: number; name: string }[]>([]);
+  const [isLoadingClasses, setIsLoadingClasses] = useState(true);
+
+  // 获取班级列表
+  useEffect(() => {
+    async function fetchClasses() {
+      try {
+        setIsLoadingClasses(true);
+        const classes = await getActiveClasses();
+        setClassData(classes);
+      } catch (error) {
+        console.error('获取班级列表失败:', error);
+        toast.error('获取班级列表失败，请刷新页面重试');
+        setClassData([]);
+      } finally {
+        setIsLoadingClasses(false);
+      }
+    }
+    fetchClasses();
+  }, []);
 
   // 验证手机号格式
   const isValidPhone = (phoneNumber: string) => {
@@ -124,18 +135,28 @@ export default function StudentRegisterStep1() {
                   
                   {showClassDropdown && (
                     <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 shadow-lg rounded-lg border border-gray-200 dark:border-gray-700 max-h-60 overflow-y-auto">
-                      {classData.map((cls) => (
-                        <div 
-                          key={cls.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleClassSelect(cls.id, cls.name);
-                          }}
-                          className="px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
-                        >
-                          {cls.name}
+                      {isLoadingClasses ? (
+                        <div className="px-4 py-3 text-gray-500 dark:text-gray-400 text-center">
+                          <i className="fa-solid fa-spinner fa-spin mr-2"></i>加载中...
                         </div>
-                      ))}
+                      ) : classData.length > 0 ? (
+                        classData.map((cls) => (
+                          <div 
+                            key={cls.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleClassSelect(cls.id, cls.name);
+                            }}
+                            className="px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-100"
+                          >
+                            {cls.name}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-gray-500 dark:text-gray-400 text-center">
+                          暂无可选班级
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -2,86 +2,200 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { getLessonPlanList, deleteLessonPlan, getLessonPlanDetail } from "@/services/savedLessonPlanApi";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 interface LessonPlan {
     id: number;
-    name: string;
+    title: string;
     subject: string;
+    grade: string;
     createdAt: string;
-    attachment: {
-        type: "pdf";
-        url: string;
-        fileName: string;
-    };
+    status: 'draft' | 'published';
 }
 
-const mockLessonPlans: LessonPlan[] = [{
-    id: 1,
-    name: "高中数学函数概念教学方案",
-    subject: "数学",
-    createdAt: "2023-10-15",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Lesson%20Plan%20PDF&sign=6e296363e5fda76136a22c4535f0dcda",
-        fileName: "函数概念教学方案.pdf"
-    }
-}, {
-    id: 2,
-    name: "物理力学牛顿定律教学方案",
-    subject: "物理",
-    createdAt: "2023-10-20",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Newton%20Laws%20Lesson%20Plan%20PDF&sign=4fe59b726a24f3ee27a34cb55c270bc9",
-        fileName: "牛顿定律教学方案.pdf"
-    }
-}, {
-    id: 3,
-    name: "英语阅读理解教学方案",
-    subject: "英语",
-    createdAt: "2023-10-22",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Comprehension%20Lesson%20Plan%20PDF&sign=d7509b1de81af99e60987349bd6c70bb",
-        fileName: "阅读理解教学方案.pdf"
-    }
-}, {
-    id: 4,
-    name: "历史事件时间轴教学方案",
-    subject: "历史",
-    createdAt: "2023-10-25",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=History%20Timeline%20Lesson%20Plan%20PDF&sign=49dfdce77864bea7208a57d252a8f954",
-        fileName: "时间轴教学方案.pdf"
-    }
-}, {
-    id: 5,
-    name: "化学元素周期表教学方案",
-    subject: "化学",
-    createdAt: "2023-10-30",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Chemistry%20Periodic%20Table%20Lesson%20Plan%20PDF&sign=adda0df265ab7c1d73ebe66165a357eb",
-        fileName: "元素周期表教学方案.pdf"
-    }
-}, {
-    id: 6,
-    name: "地理气候类型教学方案",
-    subject: "地理",
-    createdAt: "2023-11-05",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Geography%20Climate%20Lesson%20Plan%20PDF&sign=8e171d074534b3e01c19448531208b56",
-        fileName: "气候类型教学方案.pdf"
-    }
-}];
+// Markdown 渲染器组件
+const MarkdownRenderer = ({ content }: { content: string }) => {
+    const [copiedCode, setCopiedCode] = useState<string | null>(null);
+    
+    const handleCopyCode = (code: string) => {
+        navigator.clipboard.writeText(code);
+        setCopiedCode(code);
+        toast.success('代码已复制到剪贴板');
+        setTimeout(() => setCopiedCode(null), 2000);
+    };
+    
+    return (
+        <div className="markdown-content prose max-w-none dark:prose-invert">
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
+                components={{
+                    // 自定义标题渲染
+                    h1: ({ children }) => (
+                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-6 mb-4 pb-3 border-b-2 border-green-500 dark:border-green-400">
+                            <i className="fa-solid fa-bookmark text-green-600 dark:text-green-400 mr-2"></i>
+                            {children}
+                        </h1>
+                    ),
+                    h2: ({ children }) => (
+                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mt-5 mb-3 flex items-center">
+                            <span className="w-1 h-6 bg-green-500 dark:bg-green-400 mr-3"></span>
+                            {children}
+                        </h2>
+                    ),
+                    h3: ({ children }) => (
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mt-4 mb-2">
+                            <i className="fa-solid fa-circle text-green-500 dark:text-green-400 text-xs mr-2"></i>
+                            {children}
+                        </h3>
+                    ),
+                    h4: ({ children }) => (
+                        <h4 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-3 mb-2">
+                            {children}
+                        </h4>
+                    ),
+                    // 段落
+                    p: ({ children }) => (
+                        <p className="text-gray-900 dark:text-gray-100 leading-relaxed mb-3 text-justify">
+                            {children}
+                        </p>
+                    ),
+                    // 无序列表
+                    ul: ({ children }) => (
+                        <ul className="space-y-2 my-3 text-gray-900 dark:text-gray-100 pl-6">
+                            {children}
+                        </ul>
+                    ),
+                    // 有序列表
+                    ol: ({ children }) => (
+                        <ol className="space-y-2 my-3 text-gray-900 dark:text-gray-100 pl-6">
+                            {children}
+                        </ol>
+                    ),
+                    // 列表项
+                    li: ({ children }) => (
+                        <li className="leading-relaxed flex items-start">
+                            <span className="inline-block w-1.5 h-1.5 bg-green-500 dark:bg-green-400 rounded-full mt-2 mr-2 flex-shrink-0"></span>
+                            <span className="flex-1">{children}</span>
+                        </li>
+                    ),
+                    // 粗体
+                    strong: ({ children }) => (
+                        <strong className="font-bold text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded">
+                            {children}
+                        </strong>
+                    ),
+                    // 斜体
+                    em: ({ children }) => (
+                        <em className="italic text-gray-800 dark:text-gray-200">
+                            {children}
+                        </em>
+                    ),
+                    // 行内代码
+                    code: ({ inline, children }: any) => {
+                        if (inline) {
+                            return (
+                                <code className="px-2 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-sm font-mono border border-green-200 dark:border-green-800">
+                                    {children}
+                                </code>
+                            );
+                        }
+                        return <code className="font-mono text-sm text-gray-100">{children}</code>;
+                    },
+                    // 代码块
+                    pre: ({ children }: any) => {
+                        const code = children?.props?.children || '';
+                        const isCopied = copiedCode === code;
+                        
+                        return (
+                            <div className="relative group my-4">
+                                <pre className="bg-gray-900 dark:bg-gray-950 text-gray-100 rounded-lg p-4 overflow-x-auto border border-gray-700 shadow-lg">
+                                    {children}
+                                </pre>
+                                <button
+                                    onClick={() => handleCopyCode(code)}
+                                    className="absolute top-2 right-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-all shadow-md"
+                                >
+                                    <i className={`fa-solid ${isCopied ? 'fa-check' : 'fa-copy'}`}></i>
+                                    <span>{isCopied ? '已复制' : '复制代码'}</span>
+                                </button>
+                            </div>
+                        );
+                    },
+                    // 引用块
+                    blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-green-500 dark:border-green-400 pl-4 py-2 my-4 bg-green-50 dark:bg-green-900/20 rounded-r">
+                            <div className="flex items-start">
+                                <i className="fa-solid fa-quote-left text-green-500 dark:text-green-400 text-xl mr-3 mt-1"></i>
+                                <div className="flex-1 text-gray-700 dark:text-gray-300 italic">
+                                    {children}
+                                </div>
+                            </div>
+                        </blockquote>
+                    ),
+                    // 表格
+                    table: ({ children }) => (
+                        <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                {children}
+                            </table>
+                        </div>
+                    ),
+                    thead: ({ children }) => (
+                        <thead className="bg-green-50 dark:bg-green-900/30">
+                            {children}
+                        </thead>
+                    ),
+                    tbody: ({ children }) => (
+                        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                            {children}
+                        </tbody>
+                    ),
+                    tr: ({ children }) => (
+                        <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                            {children}
+                        </tr>
+                    ),
+                    th: ({ children }) => (
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wider">
+                            {children}
+                        </th>
+                    ),
+                    td: ({ children }) => (
+                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
+                            {children}
+                        </td>
+                    ),
+                    // 链接
+                    a: ({ href, children }: any) => (
+                        <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 underline decoration-2 underline-offset-2"
+                        >
+                            {children}
+                            <i className="fa-solid fa-external-link-alt ml-1 text-xs"></i>
+                        </a>
+                    ),
+                    // 水平线
+                    hr: () => (
+                        <hr className="my-6 border-t-2 border-gray-200 dark:border-gray-700" />
+                    ),
+                }}
+            >
+                {content}
+            </ReactMarkdown>
+        </div>
+    );
+};
 
 export default function LessonPlansManagement() {
     const {
@@ -94,17 +208,34 @@ export default function LessonPlansManagement() {
     const [lessonPlans, setLessonPlans] = useState<LessonPlan[]>([]);
     const [filteredLessonPlans, setFilteredLessonPlans] = useState<LessonPlan[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
-    const [showPDFPreview, setShowPDFPreview] = useState(false);
-    const [selectedPlan, setSelectedPlan] = useState<LessonPlan | null>(null);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedPlan, setSelectedPlan] = useState<any>(null);
+    const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
+    // 加载教案列表
+    const loadLessonPlans = async () => {
+        try {
+            setIsLoading(true);
+            const response = await getLessonPlanList({ page: 1, pageSize: 100 });
+            console.log('教案列表数据:', response);
+            
+            if (response.code === 200) {
+                const plans = response.data.items || [];
+                setLessonPlans(plans);
+                setFilteredLessonPlans(plans);
+            } else {
+                throw new Error(response.message || '加载失败');
+            }
+        } catch (err: any) {
+            console.error('加载教案列表失败:', err);
+            toast.error('加载教案失败: ' + (err.message || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setLessonPlans(mockLessonPlans);
-            setFilteredLessonPlans(mockLessonPlans);
-            setIsLoading(false);
-        }, 800);
-
-        return () => clearTimeout(timer);
+        loadLessonPlans();
     }, []);
 
     useEffect(() => {
@@ -122,7 +253,7 @@ export default function LessonPlansManagement() {
         const term = searchTerm.toLowerCase();
 
         const results = lessonPlans.filter(
-            plan => plan.name.toLowerCase().includes(term) || plan.name.toLowerCase() === term
+            plan => plan.title.toLowerCase().includes(term) || plan.title.toLowerCase() === term
         );
 
         setFilteredLessonPlans(results);
@@ -132,51 +263,107 @@ export default function LessonPlansManagement() {
         navigate("/teacher/lesson-plan-generator");
     };
 
-    const handleViewAttachment = (plan: LessonPlan) => {
-        setSelectedPlan(plan);
-        setShowPDFPreview(true);
+    const handleViewDetail = async (plan: LessonPlan) => {
+        try {
+            setIsLoadingDetail(true);
+            setShowDetailModal(true);
+            
+            const response = await getLessonPlanDetail(plan.id);
+            
+            if (response.code === 200) {
+                setSelectedPlan(response.data);
+            } else {
+                throw new Error(response.message || '获取详情失败');
+            }
+        } catch (err: any) {
+            console.error('获取教案详情失败:', err);
+            toast.error('获取教案详情失败: ' + (err.message || '未知错误'));
+            setShowDetailModal(false);
+        } finally {
+            setIsLoadingDetail(false);
+        }
     };
 
-    const handleClosePreview = () => {
-        setShowPDFPreview(false);
+    const handleCloseDetail = () => {
+        setShowDetailModal(false);
         setSelectedPlan(null);
     };
 
-    const renderPDFPreview = () => {
-        if (!selectedPlan)
+    const handleDeletePlan = async (id: number, title: string) => {
+        if (!confirm(`确定要删除教案"${title}"吗？删除后将无法恢复。`)) {
+            return;
+        }
+
+        try {
+            await deleteLessonPlan(id);
+            toast.success('教案删除成功');
+            loadLessonPlans(); // 重新加载列表
+        } catch (err: any) {
+            console.error('删除教案失败:', err);
+            toast.error('删除教案失败: ' + (err.message || '未知错误'));
+        }
+    };
+
+    const renderDetailModal = () => {
+        if (!showDetailModal)
             return null;
 
         return (
-            <div
-                className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-                <div
-                    className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-                    <div
-                        className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">{selectedPlan.name}</h3>
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                    <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                            {isLoadingDetail ? '加载中...' : selectedPlan?.title}
+                        </h3>
                         <button
-                            onClick={handleClosePreview}
+                            onClick={handleCloseDetail}
                             className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
                             <i className="fa-solid fa-times text-xl"></i>
                         </button>
                     </div>
-                    <div className="flex-1 overflow-auto p-4">
-                        <div className="flex justify-center items-center min-h-[60vh]">
-                            <div
-                                className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                                <i className="fa-solid fa-file-pdf text-red-500 text-6xl mb-4"></i>
-                                <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{selectedPlan.attachment.fileName}</p>
-                                <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">PDF文件预览</p>
-                                <a
-                                    href={selectedPlan.attachment.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center">
-                                    <i className="fa-solid fa-download mr-2"></i>
-                                    <span>下载文件</span>
-                                </a>
+                    <div className="flex-1 overflow-auto p-6">
+                        {isLoadingDetail ? (
+                            <div className="flex justify-center items-center min-h-[40vh]">
+                                <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin"></div>
                             </div>
-                        </div>
+                        ) : selectedPlan ? (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                                    <div>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">学科：</span>
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedPlan.subject}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">年级：</span>
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedPlan.grade}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">课时：</span>
+                                        <span className="text-sm font-medium text-gray-900 dark:text-white">{selectedPlan.duration || 45}分钟</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">状态：</span>
+                                        <span className={`text-sm font-medium ${selectedPlan.status === 'published' ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                                            {selectedPlan.status === 'published' ? '已发布' : '草稿'}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                {selectedPlan.objectives && (
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">教学目标</h4>
+                                        <p className="text-sm text-gray-600 dark:text-gray-400">{selectedPlan.objectives}</p>
+                                    </div>
+                                )}
+                                
+                                <div>
+                                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">教案内容</h4>
+                                    <div className="p-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-lg">
+                                        <MarkdownRenderer content={selectedPlan.content} />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -326,7 +513,19 @@ export default function LessonPlansManagement() {
                                         className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
                                         style={{
                                             fontSize: "14px"
-                                        }}>附件</th>
+                                        }}>年级</th>
+                                    <th
+                                        scope="col"
+                                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
+                                        style={{
+                                            fontSize: "14px"
+                                        }}>状态</th>
+                                    <th
+                                        scope="col"
+                                        className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
+                                        style={{
+                                            fontSize: "14px"
+                                        }}>操作</th>
                                 </tr>
                             </thead>
                             <tbody
@@ -338,20 +537,41 @@ export default function LessonPlansManagement() {
                                         <div className="text-sm text-gray-900 dark:text-gray-100">{index + 1}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{plan.name}</div>
+                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{plan.title}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm text-gray-600 dark:text-gray-300">{plan.subject}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{plan.createdAt}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {plan.createdAt ? new Date(plan.createdAt).toLocaleDateString('zh-CN') : '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <button
-                                            onClick={() => handleViewAttachment(plan)}
-                                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm leading-5 font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
-                                            <i className="fa-solid fa-file-pdf mr-1.5"></i>查看附件
-                                                                    </button>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">{plan.grade}</div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                            plan.status === 'published' 
+                                                ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400' 
+                                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                                        }`}>
+                                            {plan.status === 'published' ? '已发布' : '草稿'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleViewDetail(plan)}
+                                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm leading-5 font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 transition-colors">
+                                                <i className="fa-solid fa-eye mr-1.5"></i>查看
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeletePlan(plan.id, plan.title)}
+                                                className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm leading-5 font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 transition-colors">
+                                                <i className="fa-solid fa-trash mr-1.5"></i>删除
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>)}
                             </tbody>
@@ -403,7 +623,7 @@ export default function LessonPlansManagement() {
                 </div>
             </footer>
             {}
-            {showPDFPreview && renderPDFPreview()}
+            {renderDetailModal()}
         </div>
     );
 }

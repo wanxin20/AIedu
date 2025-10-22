@@ -1,88 +1,20 @@
-import { useContext, useState, useEffect, useRef } from "react";
+import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { getResources, createResource } from "@/services/resourceApi";
+import { uploadFile } from "@/services/uploadApi";
 
 interface Resource {
     id: number;
-    name: string;
+    title: string;
     subject: string;
     createdAt: string;
-    attachment: {
-        type: "pdf" | "video" | "image" | "link";
-        url: string;
-        fileName?: string;
-    };
+    fileUrl: string;
+    fileName: string;
+    type: string;
+    category?: string;
 }
-
-const mockResources: Resource[] = [{
-    id: 1,
-    name: "高中数学函数知识点总结",
-    subject: "数学",
-    createdAt: "2023-10-15",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Summary%20PDF%20Document&sign=b0db3e224e713e462098ebe6b921d7ab",
-        fileName: "函数知识点总结.pdf"
-    }
-}, {
-    id: 2,
-    name: "物理力学实验视频讲解",
-    subject: "物理",
-    createdAt: "2023-10-20",
-
-    attachment: {
-        type: "video",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Mechanics%20Experiment%20Video&sign=99fb50a9df0d1b57fcc6570256b9e992",
-        fileName: "力学实验.mp4"
-    }
-}, {
-    id: 3,
-    name: "英语阅读理解答题技巧",
-    subject: "英语",
-    createdAt: "2023-10-22",
-
-    attachment: {
-        type: "image",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Comprehension%20Skills&sign=8bb130e56afef603b1987ce15c23646c",
-        fileName: "答题技巧.png"
-    }
-}, {
-    id: 4,
-    name: "历史事件时间轴",
-    subject: "历史",
-    createdAt: "2023-10-25",
-
-    attachment: {
-        type: "link",
-        url: "https://example.com/history-timeline",
-        fileName: "历史时间轴"
-    }
-}, {
-    id: 5,
-    name: "化学元素周期表高清版",
-    subject: "化学",
-    createdAt: "2023-10-30",
-
-    attachment: {
-        type: "image",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Periodic%20Table%20of%20Elements&sign=bc1caba46953572608abb21569bc7152",
-        fileName: "元素周期表.jpg"
-    }
-}, {
-    id: 6,
-    name: "地理气候类型分布图",
-    subject: "地理",
-    createdAt: "2023-11-05",
-
-    attachment: {
-        type: "pdf",
-        url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Geography%20Climate%20Map%20PDF&sign=8f190cd5955d46d873beb64d6339bebb",
-        fileName: "气候类型分布图.pdf"
-    }
-}];
 
 export default function ResourcesManagement() {
     const {
@@ -94,18 +26,44 @@ export default function ResourcesManagement() {
     const [isLoading, setIsLoading] = useState(true);
     const [resources, setResources] = useState<Resource[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
-    const [searchType, setSearchType] = useState<"fuzzy" | "exact">("fuzzy");
     const [filteredResources, setFilteredResources] = useState<Resource[]>([]);
-    const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
     const [showUploadModal, setShowUploadModal] = useState(false);
 
     const [formData, setFormData] = useState({
         name: "",
-        subject: "",
+        subject: "", // 默认为空，用户需要选择
+        category: "课件",
         file: null as File | null
     });
 
     const [uploading, setUploading] = useState(false);
+
+    // 加载资源列表
+    const loadResources = async () => {
+        try {
+            setIsLoading(true);
+            const response = await getResources({ page: 1, pageSize: 100 });
+            console.log('资源列表数据:', response);
+            // 转换 API 返回的数据格式为组件内部使用的格式
+            const mappedResources = (response.data.items || []).map((item: any) => ({
+                id: item.id,
+                title: item.title,
+                subject: item.subject,
+                createdAt: item.createdAt,
+                fileUrl: item.fileUrl,
+                fileName: item.fileName,
+                type: item.type,
+                category: item.category
+            }));
+            setResources(mappedResources);
+            setFilteredResources(mappedResources);
+        } catch (err: any) {
+            console.error('加载资源列表失败:', err);
+            toast.error('加载资源失败: ' + (err.message || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     const subjects = [{
         id: "math",
@@ -149,10 +107,10 @@ export default function ResourcesManagement() {
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
+        if (e.target.files && e.target.files.length > 0) {
             setFormData(prev => ({
                 ...prev,
-                file: e.target.files[0]
+                file: e.target.files![0]
             }));
         }
     };
@@ -163,57 +121,57 @@ export default function ResourcesManagement() {
         setFormData({
             name: "",
             subject: "",
+            category: "课件",
             file: null
         });
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!formData.name || !formData.subject || !formData.file) {
             toast.error("请填写所有必填字段");
             return;
         }
 
-        setUploading(true);
+        try {
+            setUploading(true);
 
-        setTimeout(() => {
-            setUploading(false);
-            setShowUploadModal(false);
+            // 1. 先上传文件
+            const uploadResponse = await uploadFile(formData.file, 'resource');
+            console.log('文件上传成功:', uploadResponse);
+
+            // 2. 创建资源记录
+            await createResource({
+                title: formData.name,
+                subject: subjects.find(s => s.id === formData.subject)?.name || formData.subject,
+                category: formData.category,
+                fileUrl: uploadResponse.data.url,
+                fileName: formData.file.name,
+                fileSize: formData.file.size,
+                type: formData.file.type.startsWith('video/') ? 'video' : 
+                      formData.file.type.startsWith('image/') ? 'image' : 'document'
+            });
+
             toast.success("资源上传成功");
-
+            setShowUploadModal(false);
             setFormData({
                 name: "",
                 subject: "",
+                category: "课件",
                 file: null
             });
 
-            const newResource: Resource = {
-                id: resources.length + 1,
-                name: formData.name,
-                subject: subjects.find(s => s.id === formData.subject)?.name || formData.subject,
-                createdAt: new Date().toISOString().split("T")[0],
-
-                attachment: {
-                    type: "pdf",
-                    url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Uploaded%20Document&sign=defd4f72e27b814d2d5fe362e6ac6673",
-                    fileName: formData.file?.name
-                }
-            };
-
-            setResources(prev => [newResource, ...prev]);
-            setFilteredResources(prev => [newResource, ...prev]);
-        }, 1500);
+            // 3. 重新加载资源列表
+            await loadResources();
+        } catch (err: any) {
+            console.error('上传资源失败:', err);
+            toast.error('上传失败: ' + (err.message || '未知错误'));
+        } finally {
+            setUploading(false);
+        }
     };
 
-    const videoRef = useRef<HTMLVideoElement>(null);
-
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setResources(mockResources);
-            setFilteredResources(mockResources);
-            setIsLoading(false);
-        }, 800);
-
-        return () => clearTimeout(timer);
+        loadResources();
     }, []);
 
     useEffect(() => {
@@ -231,7 +189,7 @@ export default function ResourcesManagement() {
         const term = searchTerm.toLowerCase();
 
         const results = resources.filter(resource => {
-            const resourceName = resource.name.toLowerCase();
+            const resourceName = resource.title.toLowerCase();
             return resourceName === term || resourceName.includes(term);
         });
 
@@ -240,52 +198,6 @@ export default function ResourcesManagement() {
 
     const handleLinkAttachment = (url: string) => {
         window.open(url, "_blank");
-    };
-
-    const renderAttachmentPreview = () => {
-        if (!selectedResource)
-            return null;
-
-        const {
-            type,
-            url,
-            fileName
-        } = selectedResource.attachment;
-
-        switch (type) {
-        case "pdf":
-            return (
-                <div className="flex justify-center items-center h-[60vh]">
-                    <div className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg">
-                        <i className="fa-solid fa-file-pdf text-red-500 text-6xl mb-4"></i>
-                        <p className="text-center text-gray-700 dark:text-gray-300">{fileName}</p>
-                        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-2">PDF文件预览</p>
-                    </div>
-                </div>
-            );
-        case "image":
-            return (
-                <div className="flex justify-center items-center h-[60vh] p-4">
-                    <img
-                        src={url}
-                        alt={fileName || selectedResource.name}
-                        className="max-h-full max-w-full object-contain rounded-lg shadow-lg" />
-                </div>
-            );
-        case "video":
-            return (
-                <div className="flex justify-center items-center h-[60vh] p-4">
-                    <video
-                        ref={videoRef}
-                        controls
-                        className="max-h-full max-w-full rounded-lg shadow-lg">
-                        <source src={url} type="video/mp4" />您的浏览器不支持视频播放
-                                                            </video>
-                </div>
-            );
-        default:
-            return null;
-        }
     };
 
     return (
@@ -448,23 +360,25 @@ export default function ResourcesManagement() {
                                         <div className="text-sm text-gray-900 dark:text-gray-100">{index + 1}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{resource.name}</div>
+                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{resource.title}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm text-gray-600 dark:text-gray-300">{resource.subject}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{resource.createdAt}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {resource.createdAt ? new Date(resource.createdAt).toLocaleDateString('zh-CN') : '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <button
-                                            onClick={() => handleLinkAttachment(resource.attachment.url)}
+                                            onClick={() => handleLinkAttachment(resource.fileUrl)}
                                             className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm leading-5 font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">
-                                            {resource.attachment.type === "pdf" && <i className="fa-solid fa-file-pdf mr-1.5"></i>}
-                                            {resource.attachment.type === "video" && <i className="fa-solid fa-file-video mr-1.5"></i>}
-                                            {resource.attachment.type === "image" && <i className="fa-solid fa-file-image mr-1.5"></i>}
-                                            {resource.attachment.type === "link" && <i className="fa-solid fa-link mr-1.5"></i>}
-                                            {resource.attachment.type === "link" ? "打开链接" : "查看附件"}
+                                            {resource.type === "document" && <i className="fa-solid fa-file-pdf mr-1.5"></i>}
+                                            {resource.type === "video" && <i className="fa-solid fa-file-video mr-1.5"></i>}
+                                            {resource.type === "image" && <i className="fa-solid fa-file-image mr-1.5"></i>}
+                                            {resource.type === "other" && <i className="fa-solid fa-link mr-1.5"></i>}
+                                            查看附件
                                         </button>
                                     </td>
                                 </tr>)}
@@ -502,10 +416,7 @@ export default function ResourcesManagement() {
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">未找到匹配的资源</h3>
                         <p className="text-gray-500 dark:text-gray-400">请尝试调整搜索条件或关键词</p>
                         <button
-                            onClick={() => {
-                                setSearchTerm("");
-                                setSearchType("fuzzy");
-                            }}
+                            onClick={() => setSearchTerm("")}
                             className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors">清除搜索条件
                                                                       </button>
                     </div>
@@ -551,6 +462,7 @@ export default function ResourcesManagement() {
                                 value={formData.subject}
                                 onChange={handleInputChange}
                                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white transition-colors">
+                                <option value="">请选择学科</option>
                                 {subjects.map(subject => <option key={subject.id} value={subject.id}>
                                     {subject.name}
                                 </option>)}

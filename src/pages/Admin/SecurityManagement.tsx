@@ -2,36 +2,8 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
-
-const passwordPolicy = {
-    minLength: 8,
-    requireUppercase: true,
-    requireLowercase: true,
-    requireNumbers: true,
-    requireSpecialChars: true,
-    maxFailedAttempts: 5,
-    passwordExpiryDays: 90
-};
-
-const userData = [{
-    id: 1,
-    name: "张老师",
-    role: "teacher",
-    phone: "13800138001",
-    lastLogin: "2023-11-19 08:45"
-}, {
-    id: 2,
-    name: "李老师",
-    role: "teacher",
-    phone: "13800138002",
-    lastLogin: "2023-11-18 14:30"
-}, {
-    id: 3,
-    name: "王老师",
-    role: "teacher",
-    phone: "13800138003",
-    lastLogin: "2023-11-19 10:15"
-}];
+import { getSystemConfig, updateSystemConfig } from "@/services/systemConfigApi";
+import { getUsers, resetPassword } from "@/services/userApi";
 
 export default function SecurityManagement() {
     const {
@@ -42,16 +14,55 @@ export default function SecurityManagement() {
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
-    const [policy, setPolicy] = useState(passwordPolicy);
+    const [policy, setPolicy] = useState({
+        minLength: 8,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumbers: true,
+        requireSpecialChars: false,
+        maxFailedAttempts: 5,
+        passwordExpiryDays: 90
+    });
     const [editingPolicy, setEditingPolicy] = useState(false);
-    const [users, setUsers] = useState(userData);
+    const [users, setUsers] = useState<any[]>([]);
+    const [error, setError] = useState<string | null>(null);
+
+    // 加载系统配置和用户列表
+    const loadData = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+
+            // 加载系统配置
+            const configResponse = await getSystemConfig();
+            console.log('系统配置数据:', configResponse);
+            if (configResponse.data) {
+                setPolicy({
+                    minLength: configResponse.data.passwordMinLength || 8,
+                    requireUppercase: configResponse.data.passwordRequireUppercase || false,
+                    requireLowercase: configResponse.data.passwordRequireLowercase || false,
+                    requireNumbers: configResponse.data.passwordRequireNumber || false,
+                    requireSpecialChars: configResponse.data.passwordRequireSpecial || false,
+                    maxFailedAttempts: configResponse.data.maxLoginAttempts || 5,
+                    passwordExpiryDays: 90
+                });
+            }
+
+            // 加载用户列表（教师和管理员）
+            const usersResponse = await getUsers({ page: 1, pageSize: 100 });
+            console.log('用户列表数据:', usersResponse);
+            setUsers(usersResponse.data.items || []);
+        } catch (err: any) {
+            console.error('加载数据失败:', err);
+            setError(err.message || '加载数据失败');
+            toast.error('加载数据失败: ' + (err.message || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setIsLoading(false);
-        }, 800);
-
-        return () => clearTimeout(timer);
+        loadData();
     }, []);
 
     useEffect(() => {
@@ -60,17 +71,38 @@ export default function SecurityManagement() {
         }
     }, [user, navigate]);
 
-    const handleSavePolicy = () => {
-        setEditingPolicy(false);
-        toast.success("密码策略已更新");
+    const handleSavePolicy = async () => {
+        try {
+            await updateSystemConfig({
+                passwordMinLength: policy.minLength,
+                passwordRequireUppercase: policy.requireUppercase,
+                passwordRequireLowercase: policy.requireLowercase,
+                passwordRequireNumber: policy.requireNumbers,
+                passwordRequireSpecial: policy.requireSpecialChars,
+                maxLoginAttempts: policy.maxFailedAttempts
+            });
+            setEditingPolicy(false);
+            toast.success("密码策略已更新");
+        } catch (err: any) {
+            console.error('更新密码策略失败:', err);
+            toast.error('更新失败: ' + (err.message || '未知错误'));
+        }
     };
 
-    const handleResetPassword = (id, name) => {
-        toast.success(`${name}的密码已重置为默认密码: 123456`);
+    const handleResetPassword = async (id: number, name: string) => {
+        try {
+            await resetPassword(id, '123456');
+            toast.success(`${name}的密码已重置为默认密码: 123456`);
+        } catch (err: any) {
+            console.error('重置密码失败:', err);
+            toast.error('重置失败: ' + (err.message || '未知错误'));
+        }
     };
 
     const filteredUsers = users.filter(
-        user => user.name.toLowerCase().includes(searchTerm.toLowerCase()) || user.phone.includes(searchTerm) || user.role.includes(searchTerm.toLowerCase())
+        u => u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+             u.phone.includes(searchTerm) || 
+             u.role.includes(searchTerm.toLowerCase())
     );
 
     return (
@@ -334,26 +366,30 @@ export default function SecurityManagement() {
                                     </thead>
                                     <tbody
                                         className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                        {filteredUsers.length > 0 ? filteredUsers.map(user => <tr
-                                            key={user.id}
+                                        {filteredUsers.length > 0 ? filteredUsers.map(u => <tr
+                                            key={u.id}
                                             className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm font-medium text-gray-800 dark:text-white">{user.name}</div>
+                                                <div className="text-sm font-medium text-gray-800 dark:text-white">{u.name}</div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm text-gray-600 dark:text-gray-300">{user.role === "admin" ? "管理员" : "教师"}</div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-300">
+                                                    {u.role === "admin" ? "管理员" : u.role === "teacher" ? "教师" : "学生"}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm text-gray-600 dark:text-gray-300">{user.phone}</div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-300">{u.phone}</div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm text-gray-600 dark:text-gray-300">{user.lastLogin}</div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-300">
+                                                    {u.last_login_at ? new Date(u.last_login_at).toLocaleString('zh-CN') : '-'}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                                 <button
-                                                    onClick={() => handleResetPassword(user.id, user.name)}
+                                                    onClick={() => handleResetPassword(u.id, u.name)}
                                                     className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300">重置密码
-                                                                                  </button>
+                                                </button>
                                             </td>
                                         </tr>) : <tr>
                                             <td

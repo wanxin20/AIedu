@@ -1,74 +1,9 @@
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
-
-const classData = [{
-    id: 1,
-    name: "高一(1)班",
-    students: 45,
-    teachers: 3,
-    status: "active",
-    createdAt: "2023-09-01",
-    headTeacherId: 1
-}, {
-    id: 2,
-    name: "高一(2)班",
-    students: 42,
-    teachers: 3,
-    status: "active",
-    createdAt: "2023-09-01",
-    headTeacherId: 2
-}, {
-    id: 3,
-    name: "高二(1)班",
-    students: 48,
-    teachers: 4,
-    status: "active",
-    createdAt: "2022-09-01",
-    headTeacherId: 3
-}, {
-    id: 4,
-    name: "高二(2)班",
-    students: 40,
-    teachers: 4,
-    status: "active",
-    createdAt: "2022-09-01",
-    headTeacherId: 4
-}, {
-    id: 5,
-    name: "高三(1)班",
-    students: 38,
-    teachers: 5,
-    status: "active",
-    createdAt: "2021-09-01",
-    headTeacherId: 5
-}, {
-    id: 6,
-    name: "高三(2)班",
-    students: 36,
-    teachers: 5,
-    status: "archived",
-    createdAt: "2021-09-01",
-    headTeacherId: 1
-}];
-
-const teachersData = [{
-    id: 1,
-    name: "张老师"
-}, {
-    id: 2,
-    name: "李老师"
-}, {
-    id: 3,
-    name: "王老师"
-}, {
-    id: 4,
-    name: "赵老师"
-}, {
-    id: 5,
-    name: "孙老师"
-}];
+import { getClassList, createClass, updateClass, deleteClass } from "@/services/classApi";
+import { getUserList } from "@/services/userApi";
 
 export default function ClassManagement() {
     const {
@@ -78,24 +13,60 @@ export default function ClassManagement() {
 
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(true);
-    const [classes, setClasses] = useState(classData);
+    const [classes, setClasses] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         className: "",
+        grade: "",
         headTeacherId: ""
     });
 
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [teachers] = useState(teachersData);
+    const [teachers, setTeachers] = useState<any[]>([]);
+    const isInitializedRef = useRef(false); // 防止重复初始化
+
+    // 加载班级列表
+    const loadClasses = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const response = await getClassList({ page: 1, pageSize: 100 });
+            console.log('班级列表数据:', response);
+            setClasses(response.data.items || []);
+        } catch (err: any) {
+            console.error('加载班级列表失败:', err);
+            setError(err.message || '加载数据失败');
+            toast.error('加载班级列表失败: ' + (err.message || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // 加载教师列表
+    const loadTeachers = async () => {
+        try {
+            const response = await getUserList({ role: 'teacher', page: 1, pageSize: 100 });
+            console.log('教师列表数据:', response);
+            setTeachers(response.data.items || []);
+        } catch (err: any) {
+            console.error('加载教师列表失败:', err);
+            toast.error('加载教师列表失败');
+        }
+    };
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setIsLoading(false);
-        }, 800);
-
-        return () => clearTimeout(timer);
+        // 防止 React.StrictMode 导致的重复调用
+        if (isInitializedRef.current) {
+            return;
+        }
+        isInitializedRef.current = true;
+        
+        loadClasses();
+        loadTeachers();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -104,18 +75,37 @@ export default function ClassManagement() {
         }
     }, [user, navigate]);
 
-    const handleArchiveClass = id => {
-        const updatedClasses = classes.map(cls => cls.id === id ? {
-            ...cls,
-            status: cls.status === "active" ? "archived" : "active"
-        } : cls);
+    const handleArchiveClass = async (id: number) => {
+        const cls = classes.find(c => c.id === id);
+        if (!cls) return;
 
-        setClasses(updatedClasses);
-        const updatedClass = updatedClasses.find(c => c.id === id);
+        const newStatus = cls.status === 1 ? 0 : 1;
+        const actionText = newStatus === 1 ? "激活" : "归档";
 
-        if (updatedClass) {
-            const actionText = updatedClass.status === "active" ? "激活" : "归档";
+        try {
+            await updateClass(id, { status: newStatus });
             toast.success(`班级已${actionText}`);
+            // 重新加载班级列表
+            loadClasses();
+        } catch (err: any) {
+            console.error('更新班级状态失败:', err);
+            toast.error('操作失败: ' + (err.message || '未知错误'));
+        }
+    };
+
+    const handleDeleteClass = async (id: number) => {
+        if (!confirm('确定要删除这个班级吗？删除后无法恢复。')) {
+            return;
+        }
+
+        try {
+            await deleteClass(id);
+            toast.success('班级已删除');
+            // 重新加载班级列表
+            loadClasses();
+        } catch (err: any) {
+            console.error('删除班级失败:', err);
+            toast.error('删除失败: ' + (err.message || '未知错误'));
         }
     };
 
@@ -140,50 +130,59 @@ export default function ClassManagement() {
 
         setFormData({
             className: "",
+            grade: "",
             headTeacherId: ""
         });
     };
 
-    const handleSaveClass = () => {
+    const handleSaveClass = async () => {
         if (!formData.className.trim()) {
             toast.error("请输入班级名称");
             return;
         }
 
-        if (!formData.headTeacherId) {
-            toast.error("请选择班主任");
+        if (!formData.grade.trim()) {
+            toast.error("请输入年级");
             return;
         }
 
         setIsSubmitting(true);
 
-        setTimeout(() => {
-            const newClass = {
-                id: classes.length + 1,
+        try {
+            const response = await createClass({
                 name: formData.className,
-                students: 0,
-                teachers: 1,
-                status: "active",
-                createdAt: new Date().toISOString().split("T")[0],
-                headTeacherId: parseInt(formData.headTeacherId)
-            };
-
-            setClasses(prev => [newClass, ...prev]);
-
+                grade: formData.grade,
+                teacher_id: formData.headTeacherId ? parseInt(formData.headTeacherId) : undefined
+            });
+            
+            console.log('创建班级成功:', response);
+            toast.success("班级创建成功");
+            
             setFormData({
                 className: "",
+                grade: "",
                 headTeacherId: ""
             });
-
+            
             setShowCreateModal(false);
+            
+            // 重新加载班级列表
+            loadClasses();
+        } catch (err: any) {
+            console.error('创建班级失败:', err);
+            toast.error('创建班级失败: ' + (err.message || '未知错误'));
+        } finally {
             setIsSubmitting(false);
-            toast.success("班级创建成功");
-        }, 800);
+        }
     };
 
-    const filteredClasses = classes.filter(
-        cls => cls.name.toLowerCase().includes(searchTerm.toLowerCase()) || cls.status.includes(searchTerm.toLowerCase())
-    );
+    const filteredClasses = classes.filter(cls => {
+        const searchLower = searchTerm.toLowerCase();
+        const statusText = cls.status === 1 ? '活跃' : '已停用';
+        return cls.name.toLowerCase().includes(searchLower) || 
+               statusText.toLowerCase().includes(searchLower) ||
+               (cls.grade && cls.grade.toLowerCase().includes(searchLower));
+    });
 
     return (
         <div
@@ -344,25 +343,28 @@ export default function ClassManagement() {
                                     className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-800 dark:text-white">{cls.name}</div>
+                                        {cls.grade && <div className="text-xs text-gray-500 dark:text-gray-400">{cls.grade}</div>}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm text-gray-600 dark:text-gray-300">
-                                            {teachers.find(teacher => teacher.id === cls.headTeacherId)?.name || "未设置"}
+                                            {cls.teacherName || teachers.find(teacher => teacher.id === cls.teacherId)?.name || "未设置"}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{cls.students}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">{cls.studentCount || 0}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{cls.teachers}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">-</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{cls.createdAt}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {cls.createdAt ? new Date(cls.createdAt).toLocaleDateString('zh-CN') : '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span
-                                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${cls.status === "active" ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400" : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"}`}>
-                                            {cls.status === "active" ? "活跃" : "已归档"}
+                                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${cls.status === 1 ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400" : "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"}`}>
+                                            {cls.status === 1 ? "活跃" : "已停用"}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -373,10 +375,12 @@ export default function ClassManagement() {
                                             </button>
                                             <button
                                                 onClick={() => handleArchiveClass(cls.id)}
-                                                className={`${cls.status === "active" ? "text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300" : "text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300"}`}>
-                                                {cls.status === "active" ? <i className="fa-solid fa-box-archive"></i> : <i className="fa-solid fa-box-open"></i>}
+                                                className={`${cls.status === 1 ? "text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-300" : "text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300"}`}
+                                                title={cls.status === 1 ? "停用班级" : "激活班级"}>
+                                                {cls.status === 1 ? <i className="fa-solid fa-ban"></i> : <i className="fa-solid fa-check-circle"></i>}
                                             </button>
                                             <button
+                                                onClick={() => handleDeleteClass(cls.id)}
                                                 className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300">
                                                 <i className="fa-solid fa-trash"></i>
                                             </button>
@@ -443,7 +447,20 @@ export default function ClassManagement() {
                         {}
                         <div>
                             <label
-                                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">班主任 <span className="text-red-500">*</span>
+                                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">年级 <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                name="grade"
+                                value={formData.grade}
+                                onChange={handleInputChange}
+                                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white transition-colors"
+                                placeholder="请输入年级，如：高一、高二" />
+                        </div>
+                        {}
+                        <div>
+                            <label
+                                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">班主任
                             </label>
                             <div className="relative">
                                 <select

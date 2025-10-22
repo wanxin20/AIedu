@@ -2,103 +2,20 @@ import { useContext, useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
+import { getResources, downloadResource } from '@/services/resourceApi';
 
 // 定义资源接口
 interface Resource {
   id: number;
-  name: string;
+  title: string;
   subject: string;
-  createdAt: string;
-  attachment: {
-    type: "pdf" | "video" | "image" | "link";
-    url: string;
-    fileName?: string;
-  };
-  uploaderName: string;
-  views: number;
+  created_at: string;
+  file_url: string;
+  file_name: string;
+  type: string;
+  uploader_name?: string;
+  view_count?: number;
 }
-
-// 模拟资源数据
-const mockResources: Resource[] = [
-  {
-    id: 1,
-    name: "高中数学函数知识点总结",
-    subject: "数学",
-    createdAt: "2025-09-01",
-    attachment: {
-      type: "pdf",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Summary%20PDF%20Document&sign=b0db3e224e713e462098ebe6b921d7ab",
-      fileName: "函数知识点总结.pdf"
-    },
-    uploaderName: "张老师",
-    views: 128
-  },
-  {
-    id: 2,
-    name: "物理力学实验视频讲解",
-    subject: "物理",
-    createdAt: "2025-09-02",
-    attachment: {
-      type: "video",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Mechanics%20Experiment%20Video&sign=99fb50a9df0d1b57fcc6570256b9e992",
-      fileName: "力学实验.mp4"
-    },
-    uploaderName: "李老师",
-    views: 256
-  },
-  {
-    id: 3,
-    name: "英语阅读理解答题技巧",
-    subject: "英语",
-    createdAt: "2025-09-03",
-    attachment: {
-      type: "image",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Comprehension%20Skills&sign=8bb130e56afef603b1987ce15c23646c",
-      fileName: "答题技巧.png"
-    },
-    uploaderName: "王老师",
-    views: 156
-  },
-  {
-    id: 4,
-    name: "历史事件时间轴",
-    subject: "历史",
-    createdAt: "2025-09-05",
-    attachment: {
-      type: "link",
-      url: "https://example.com/history-timeline",
-      fileName: "历史时间轴"
-    },
-    uploaderName: "赵老师",
-    views: 98
-  },
-  {
-    id: 5,
-    name: "化学元素周期表高清版",
-    subject: "化学",
-    createdAt: "2025-09-07",
-    attachment: {
-      type: "image",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Periodic%20Table%20of%20Elements&sign=bc1caba46953572608abb21569bc7152",
-      fileName: "元素周期表.jpg"
-    },
-    uploaderName: "孙老师",
-    views: 189
-  },
-  {
-    id: 6,
-    name: "地理气候类型分布图",
-    subject: "地理",
-    createdAt: "2025-09-09",
-    attachment: {
-      type: "pdf",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Geography%20Climate%20Map%20PDF&sign=8f190cd5955d46d873beb64d6339bebb",
-      fileName: "气候类型分布图.pdf"
-    },
-    uploaderName: "周老师",
-    views: 85
-  }
-];
 
 export default function StudentResources() {
   const { user, logout } = useContext(AuthContext);
@@ -109,16 +26,28 @@ export default function StudentResources() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAttachmentPreview, setShowAttachmentPreview] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // 模拟数据加载
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setResources(mockResources);
-      setFilteredResources(mockResources);
+  // 加载资源列表
+  const loadResources = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await getResources({ page: 1, pageSize: 100 });
+      console.log('资源列表数据:', response);
+      setResources(response.data.items || []);
+      setFilteredResources(response.data.items || []);
+    } catch (err: any) {
+      console.error('加载资源列表失败:', err);
+      setError(err.message || '加载数据失败');
+      toast.error('加载资源失败: ' + (err.message || '未知错误'));
+    } finally {
       setIsLoading(false);
-    }, 800);
-    
-    return () => clearTimeout(timer);
+    }
+  };
+
+  useEffect(() => {
+    loadResources();
   }, []);
   
   // 权限检查
@@ -137,105 +66,25 @@ export default function StudentResources() {
     
     const term = searchTerm.toLowerCase();
     const results = resources.filter(resource => 
-      resource.name.toLowerCase().includes(term) || resource.name.toLowerCase() === term
+      resource.title.toLowerCase().includes(term) || resource.title.toLowerCase() === term
     );
     
     setFilteredResources(results);
   }, [searchTerm, resources]);
   
   // 处理查看附件
-  const handleViewAttachment = (resource: Resource) => {
-    setSelectedResource(resource);
-    setShowAttachmentPreview(true);
+  const handleViewAttachment = async (resource: Resource) => {
+    try {
+      // 记录下载
+      await downloadResource(resource.id);
+      // 打开文件URL
+      window.open(resource.file_url, '_blank');
+    } catch (err: any) {
+      console.error('打开资源失败:', err);
+      toast.error('打开资源失败: ' + (err.message || '未知错误'));
+    }
   };
   
-  // 处理打开链接
-  const handleOpenLink = (url: string) => {
-    window.open(url, '_blank');
-  };
-  
-  // 关闭附件预览
-  const handleClosePreview = () => {
-    setShowAttachmentPreview(false);
-    setSelectedResource(null);
-  };
-  
-  // 渲染附件预览
-  const renderAttachmentPreview = () => {
-    if (!selectedResource) return null;
-    
-    const { attachment } = selectedResource;
-    
-    return (
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{selectedResource.name}</h3>
-            <button 
-              onClick={handleClosePreview}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              <i className="fa-solid fa-times text-xl"></i>
-            </button>
-          </div>
-          <div className="flex-1 overflow-auto p-4">
-            <div className="flex justify-center items-center min-h-[60vh]">
-              {attachment.type === 'pdf' ? (
-                <div className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                  <i className="fa-solid fa-file-pdf text-red-500 text-6xl mb-4"></i>
-                  <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{attachment.fileName}</p>
-                  <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">PDF文件预览</p>
-                  <a 
-                    href={attachment.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-download mr-2"></i>
-                    <span>下载文件</span>
-                  </a>
-                </div>
-              ) : attachment.type === 'image' ? (
-                <img
-                  src={attachment.url}
-                  alt={attachment.fileName || selectedResource.name}
-                  className="max-h-full max-w-full object-contain rounded-lg shadow-lg"
-                />
-              ) : attachment.type === 'video' ? (
-                <div className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                  <i className="fa-solid fa-file-video text-blue-500 text-6xl mb-4"></i>
-                  <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{attachment.fileName}</p>
-                  <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">视频文件预览</p>
-                  <a 
-                    href={attachment.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-download mr-2"></i>
-                    <span>下载文件</span>
-                  </a>
-                </div>
-              ) : (
-                <div className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                  <i className="fa-solid fa-link text-blue-500 text-6xl mb-4"></i>
-                  <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{attachment.fileName}</p>
-                  <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">外部链接</p>
-                  <button 
-                    onClick={() => handleOpenLink(attachment.url)}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-external-link-alt mr-2"></i>
-                    <span>打开链接</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
   
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
@@ -363,29 +212,31 @@ export default function StudentResources() {
                         <div className="text-sm text-gray-900 dark:text-gray-100">{index + 1}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">{resource.name}</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{resource.title}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-600 dark:text-gray-300">{resource.subject}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600 dark:text-gray-300">{resource.createdAt}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                          {resource.created_at ? new Date(resource.created_at).toLocaleDateString('zh-CN') : '-'}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600 dark:text-gray-300">{resource.uploaderName}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300">{resource.uploader_name || '-'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600 dark:text-gray-300">{resource.views}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-300">{resource.view_count || 0}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <button 
                           onClick={() => handleViewAttachment(resource)}
                           className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm leading-5 font-medium rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 transition-colors"
                         >
-                          {resource.attachment.type === "pdf" && <i className="fa-solid fa-file-pdf mr-1.5"></i>}
-                          {resource.attachment.type === "video" && <i className="fa-solid fa-file-video mr-1.5"></i>}
-                          {resource.attachment.type === "image" && <i className="fa-solid fa-file-image mr-1.5"></i>}
-                          {resource.attachment.type === "link" && <i className="fa-solid fa-link mr-1.5"></i>}
+                          {resource.type === "document" && <i className="fa-solid fa-file-pdf mr-1.5"></i>}
+                          {resource.type === "video" && <i className="fa-solid fa-file-video mr-1.5"></i>}
+                          {resource.type === "image" && <i className="fa-solid fa-file-image mr-1.5"></i>}
+                          {resource.type === "other" && <i className="fa-solid fa-link mr-1.5"></i>}
                           查看附件
                         </button>
                       </td>
@@ -438,9 +289,6 @@ export default function StudentResources() {
           <p>© 2025 智慧教辅系统 - 学生后台</p>
         </div>
       </footer>
-      
-      {/* 附件预览弹窗 */}
-      {showAttachmentPreview && renderAttachmentPreview()}
     </div>
   );
 }

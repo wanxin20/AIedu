@@ -2,6 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
+import { loginWithPassword } from '@/services/authApi';
 
 export default function PhoneLogin() {
   const navigate = useNavigate();
@@ -44,7 +45,7 @@ export default function PhoneLogin() {
     return /^1[3-9]\d{9}$/.test(phoneNumber);
   };
   
-  // 模拟发送验证码
+  // 发送验证码
   const handleSendCode = () => {
     if (!isValidPhone(phone)) {
       toast.error('请输入有效的手机号');
@@ -54,16 +55,11 @@ export default function PhoneLogin() {
     // 开始倒计时
     setCountdown(60);
     
-    // 模拟发送验证码API请求
+    // TODO: 调用真实的发送验证码API
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
       toast.success('验证码已发送，请注意查收');
-      
-      // 模拟验证码 - 仅用于演示
-      if (phone === '13800138000') {
-        setVerificationCode('123456');
-      }
     }, 1500);
   };
   
@@ -79,7 +75,7 @@ export default function PhoneLogin() {
   }, [countdown]);
   
    // 处理登录
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!isValidPhone(phone)) {
       toast.error('请输入有效的手机号');
       return;
@@ -97,29 +93,33 @@ export default function PhoneLogin() {
     
     setIsLoading(true);
     
-    // 模拟登录API请求
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // 调用真实的登录 API
+      const result = await loginWithPassword({
+        phone,
+        password
+      });
       
-      // 模拟不同角色的用户信息
-      const userInfo = {
-        admin: { name: '系统管理员', phone },
-        teacher: { name: '张老师', phone },
-        student: { name: '李同学', phone }
-      };
+      const userData = result.data.user;
       
-      // 调用登录函数
-      login(role, phone, userInfo[role].name);
+      // 调用登录函数，更新认证状态
+      login(userData.role, userData.phone, userData.name);
       
       // 导航到相应的仪表盘
-      navigate(
-        role === 'admin' ? '/admin/dashboard' : 
-        role === 'teacher' ? '/teacher/dashboard' : 
-        '/student/dashboard'
-      );
+      const dashboardPath = 
+        userData.role === 'admin' ? '/admin/dashboard' : 
+        userData.role === 'teacher' ? '/teacher/dashboard' : 
+        '/student/dashboard';
       
-      toast.success(`登录成功，欢迎回来，${userInfo[role].name}`);
-    }, 1500);
+      navigate(dashboardPath);
+      
+      toast.success(`登录成功，欢迎回来，${userData.name}`);
+    } catch (error: any) {
+      console.error('登录失败:', error);
+      toast.error(error.message || '登录失败，请检查手机号和密码');
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   // 根据角色设置页面标题和说明
@@ -299,10 +299,6 @@ export default function PhoneLogin() {
               </button>
             </div>
             
-            {/* 模拟用户登录提示 */}
-            <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
-              <p>演示账号: <span className="font-medium">13800138000</span> (点击获取验证码后自动填充)</p>
-            </div>
           </div>
         </div>
       </div>

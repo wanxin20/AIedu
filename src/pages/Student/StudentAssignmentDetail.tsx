@@ -1,11 +1,16 @@
 import { useContext, useState, useEffect } from "react";
-import { useNavigate, useParams, Link, useLocation } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { getAssignmentDetail } from "@/services/assignmentApi";
+import { getSubmissionByAssignment } from "@/services/submissionApi";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 interface Assignment {
   id: number;
@@ -38,125 +43,6 @@ interface Assignment {
   gradedBy?: string;
   gradedAt?: string;
 }
-
-const getAssignmentById = (id: number): Assignment => {
-    const assignments: Assignment[] = [{
-        id: 1,
-        name: "高中数学函数基础练习",
-        subject: "数学",
-        assignedDate: "2025-09-01",
-        dueDate: "2025-09-10",
-        description: "本作业涵盖函数的基本概念、性质及应用，旨在帮助学生巩固函数相关知识，提高解题能力。请完成所有习题，并提交详细的解题过程。",
-        status: "pending",
-
-    attachments: [{
-      id: "att1",
-      name: "函数基础知识点.pdf",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Study%20Material%20PDF&sign=bc8d80ff84a40d1073c6e6278aac6c81",
-      type: "pdf"
-    }],
-    studentAttachments: [{
-      id: "student-att1-1",
-      name: "数学作业解答.jpg",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20Math%20Homework%20Solution&sign=ce15ee153eb33c9f4f1b3a284a8cd216",
-      type: "image"
-    }]
-  }, {
-        id: 2,
-        name: "物理力学实验报告",
-        subject: "物理",
-        assignedDate: "2025-09-02",
-        dueDate: "2025-09-12",
-        description: "本次实验要求学生完成牛顿力学定律的验证实验，并提交详细的实验报告，包括实验目的、原理、步骤、数据记录与分析等内容。请按照实验指导书的要求规范撰写。",
-        status: "pending",
-
-        attachments: [{
-            id: "att2",
-            name: "实验指导书.pdf",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Experiment%20Guide%20PDF&sign=b68e905d7770cdd530fc66118494ab8c",
-            type: "pdf"
-        }]
-    }, {
-        id: 3,
-        name: "英语阅读理解训练",
-        subject: "英语",
-        assignedDate: "2025-09-03",
-        dueDate: "2025-09-15",
-        description: "通过多篇不同题材的阅读理解文章，训练学生的阅读速度、理解能力和词汇量，提高英语综合能力。请仔细阅读文章，回答所有问题，并解释你的选择理由。",
-        status: "submitted",
-
-        attachments: [{
-            id: "att3",
-            name: "阅读材料集合.pdf",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Materials%20PDF&sign=93010a07eb0bc912bb9446e2a9cf8149",
-            type: "pdf"
-        }]
-    }, {
-        id: 4,
-        name: "化学元素周期表练习",
-        subject: "化学",
-        assignedDate: "2025-09-05",
-        dueDate: "2025-09-18",
-        description: "本作业要求学生掌握元素周期表的结构、元素性质的周期性变化规律，并能够应用这些知识解决相关问题。",
-        status: "graded",
-        score: 85,
-        comment: "整体表现良好，对元素周期表的基本结构掌握扎实，但在一些细节问题上还需要加强。建议多做一些相关练习，巩固对元素性质周期性变化规律的理解。继续加油！",
-        gradedBy: "王老师",
-        gradedAt: "2025-09-10 15:30:00",
-
-    attachments: [{
-      id: "att4",
-      name: "元素周期表高清版.jpg",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Periodic%20Table%20of%20Elements&sign=bc1caba46953572608abb21569bc7152",
-      type: "image"
-    }],
-    studentAttachments: [{
-      id: "student-att4-1",
-      name: "元素周期表练习题.jpg",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20Chemistry%20Homework%20on%20Periodic%20Table&sign=f0507c32f98f23e24bbf44901baa510b",
-      type: "image"
-    }],
-
-    gradedAttachments: [{
-      id: "graded1",
-      name: "批改版元素周期表练习.jpg",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Graded%20Chemistry%20Periodic%20Table%20Exercise%20with%20Teacher%20Markings&sign=f48c4296ab34938c7dfe379966a65455",
-      type: "image"
-    }, {
-            id: "graded2",
-            name: "知识点补充.png",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Chemistry%20Study%20Notes%20with%20Teacher%20Supplement&sign=05357b0b538528a4c4ccd712571aa514",
-            type: "image"
-        }]
-    }, {
-        id: 5,
-        name: "历史事件时间轴制作",
-        subject: "历史",
-        assignedDate: "2025-09-06",
-        dueDate: "2025-09-20",
-        description: "学生需要收集指定历史时期的重要事件资料，制作详细的时间轴，梳理历史发展脉络，培养历史思维能力。",
-        status: "graded",
-        score: 92,
-        comment: "时间轴制作非常精美，事件排列顺序正确，重点突出。能够很好地展示历史发展的脉络，体现了对历史知识的深入理解。继续保持！",
-        gradedBy: "李老师",
-        gradedAt: "2025-09-12 10:15:00",
-
-    studentAttachments: [{
-      id: "student-att5-1",
-      name: "历史事件时间轴.jpg",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20History%20Timeline%20Project&sign=8153dfdab1cfbe6db6e97be404bab1a0",
-      type: "image"
-    }],
-    gradedAttachments: [{
-      id: "graded3",
-      name: "批改后的历史时间轴.jpg",
-      url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Graded%20History%20Timeline%20with%20Teacher%20Feedback&sign=ec7e1d540a025ade2c83d7ccf2dfb50a",
-      type: "image"
-    }]
-    }];
-
-    return assignments.find(a => a.id === id) || assignments[0];
-};
 
 const isAssignmentExpired = (dueDate: string) => {
     const today = new Date();
@@ -211,9 +97,6 @@ export default function StudentAssignmentDetail() {
         logout
     } = useContext(AuthContext);
 
-    const location = useLocation();
-    const searchParams = new URLSearchParams(location.search);
-    const statusFromUrl = searchParams.get("status") || "graded";
     const navigate = useNavigate();
     const params = useParams();
     const assignmentId = parseInt(String(params.id), 10) || 1;
@@ -221,6 +104,7 @@ export default function StudentAssignmentDetail() {
     const [assignment, setAssignment] = useState<Assignment | null>(null);
     const [showAttachmentPreview, setShowAttachmentPreview] = useState(false);
     const [selectedAttachment, setSelectedAttachment] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
 
     // Markdown 渲染组件
     const MarkdownRenderer = ({ content }: { content: string }) => {
@@ -240,8 +124,8 @@ export default function StudentAssignmentDetail() {
           dark:prose-strong:text-white
           dark:prose-code:bg-gray-700">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw, rehypeSanitize]}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
           >
             {content}
           </ReactMarkdown>
@@ -249,38 +133,100 @@ export default function StudentAssignmentDetail() {
       );
     };
 
+    // 加载作业和提交数据
     useEffect(() => {
-        const timer = setTimeout(() => {
-            let assignmentData = getAssignmentById(assignmentId);
-      assignmentData.status = "graded";
+      const loadData = async () => {
+        if (!assignmentId) {
+          setError('缺少作业ID');
+          setIsLoading(false);
+          return;
+        }
 
-      if (assignmentData.id >= 100) {
-        assignmentData.score = Math.floor(Math.random() * 21) + 80;
-        assignmentData.comment = "整体表现良好，知识点掌握扎实，但在一些细节问题上还需要加强。建议多做一些相关练习，巩固对知识点的理解和应用能力。继续加油！";
-        assignmentData.gradedBy = "张老师";
-        assignmentData.gradedAt = "2025-09-09 15:30:00";
+        try {
+          setIsLoading(true);
+          setError(null);
 
-        // 添加学生上传的附件
-        assignmentData.studentAttachments = [{
-          id: "student-att-" + assignmentData.id,
-          name: "学生作业解答.jpg",
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Student%20Homework%20Solution%20Sheet&sign=54373ed18bfc5abd0ceb9b50c0ac4ec2",
-          type: "image"
-        }];
+          // 并行加载作业详情和提交详情
+          const [assignmentRes, submissionRes] = await Promise.all([
+            getAssignmentDetail(assignmentId),
+            getSubmissionByAssignment(assignmentId)
+          ]);
 
-        assignmentData.gradedAttachments = [{
-          id: "graded1",
-          name: "批改版作业.jpg",
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Graded%20Homework%20with%20Teacher%20Markings&sign=066095feabb64e289d12bed8acf69e22",
-          type: "image"
-        }];
-      }
+          if (assignmentRes.code === 200 && assignmentRes.data) {
+            const assignmentData = assignmentRes.data;
+            
+            // 处理提交数据
+            let submissionData = null;
+            if (submissionRes.code === 200 && submissionRes.data) {
+              submissionData = submissionRes.data;
+            }
 
-            setAssignment(assignmentData);
-            setIsLoading(false);
-        }, 800);
+            // 构建作业对象
+            const assignment: Assignment = {
+              id: assignmentData.id,
+              name: assignmentData.title,
+              subject: assignmentData.subject,
+              assignedDate: new Date(assignmentData.createdAt).toLocaleDateString('zh-CN'),
+              dueDate: new Date(assignmentData.deadline).toLocaleDateString('zh-CN'),
+              description: assignmentData.description || '',
+              status: submissionData?.status || 'pending',
+              score: submissionData?.score !== null && submissionData?.score !== undefined ? submissionData.score : undefined,
+              comment: submissionData?.comment || undefined,
+              gradedBy: submissionData?.gradedBy ? String(submissionData.gradedBy) : undefined,
+              gradedAt: submissionData?.gradedAt ? new Date(submissionData.gradedAt).toLocaleString('zh-CN') : undefined,
+              attachments: assignmentData.attachments ? assignmentData.attachments.map((att: any, index: number) => {
+                // 如果已经是对象格式
+                if (typeof att === 'object' && att.url) {
+                  return {
+                    id: att.id || `att-${index}`,
+                    name: att.name || att.fileName || `附件${index + 1}`,
+                    url: att.url || att.fileUrl,
+                    type: att.type || (att.url?.endsWith('.pdf') ? 'pdf' : 'image')
+                  };
+                }
+                // 如果是字符串URL
+                return {
+                  id: `att-${index}`,
+                  name: typeof att === 'string' ? att.split('/').pop() || `附件${index + 1}` : `附件${index + 1}`,
+                  url: att,
+                  type: typeof att === 'string' && att.endsWith('.pdf') ? 'pdf' : 'image'
+                };
+              }) : [],
+              studentAttachments: submissionData?.attachments ? submissionData.attachments.map((att: any, index: number) => {
+                // 如果已经是对象格式
+                if (typeof att === 'object' && att.url) {
+                  return {
+                    id: att.id || `student-att-${index}`,
+                    name: att.name || att.fileName || `作业${index + 1}`,
+                    url: att.url || att.fileUrl,
+                    type: att.type || (att.url?.endsWith('.pdf') ? 'pdf' : 'image')
+                  };
+                }
+                // 如果是字符串URL
+                return {
+                  id: `student-att-${index}`,
+                  name: typeof att === 'string' ? att.split('/').pop() || `作业${index + 1}` : `作业${index + 1}`,
+                  url: att,
+                  type: typeof att === 'string' && att.endsWith('.pdf') ? 'pdf' : 'image'
+                };
+              }) : [],
+              gradedAttachments: [] // 批改附件可以后续添加
+            };
 
-        return () => clearTimeout(timer);
+            setAssignment(assignment);
+          } else {
+            setError(assignmentRes.message || '获取作业详情失败');
+          }
+        } catch (error) {
+          console.error('加载数据失败:', error);
+          setError(error instanceof Error ? error.message : '加载失败');
+          toast.error('加载作业详情失败');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      loadData();
     }, [assignmentId]);
 
     useEffect(() => {
@@ -310,332 +256,245 @@ export default function StudentAssignmentDetail() {
         } = selectedAttachment;
 
         return (
-            <div
-                className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-black/70 dark:bg-black/80 flex items-center justify-center z-50 p-4" onClick={handleCloseAttachmentPreview}>
                 <div
-                    className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-                    <div
-                        className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">{name}</h3>
+                    className="relative max-w-5xl w-full max-h-[90vh] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-auto"
+                    onClick={e => e.stopPropagation()}>
+                    <div className="sticky top-0 bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between z-10">
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white truncate flex-1">{name}</h3>
                         <button
                             onClick={handleCloseAttachmentPreview}
-                            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
-                            <i className="fa-solid fa-times text-xl"></i>
+                            className="ml-4 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition">
+                            <i className="fa-solid fa-times text-2xl"></i>
                         </button>
                     </div>
-                    <div className="flex-1 overflow-auto p-4">
-                        <div className="flex justify-center items-center min-h-[60vh]">
-                            {type === "pdf" ? <div
-                                className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                                <i className="fa-solid fa-file-pdf text-red-500 text-6xl mb-4"></i>
-                                <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{name}</p>
-                                <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">PDF文件预览</p>
-                                <a
-                                    href={url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center">
-                                    <i className="fa-solid fa-download mr-2"></i>
-                                    <span>下载文件</span>
-                                </a>
-                            </div> : type === "image" ? <img
+
+                    <div className="p-6">
+                        {type === "image" ? (
+                            <img src={url} alt={name} className="w-full h-auto rounded-lg" />
+                        ) : type === "pdf" ? (
+                            <iframe
                                 src={url}
-                                alt={name}
-                                className="max-h-full max-w-full object-contain rounded-lg shadow-lg" /> : <div
-                                className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                                <i className="fa-solid fa-file-video text-blue-500 text-6xl mb-4"></i>
-                                <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{name}</p>
-                                <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">视频文件预览</p>
-                                <a
-                                    href={url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center">
-                                    <i className="fa-solid fa-download mr-2"></i>
-                                    <span>下载文件</span>
-                                </a>
-                            </div>}
-                        </div>
+                                className="w-full h-[70vh] rounded-lg border border-gray-200 dark:border-gray-700"
+                                title={name} />
+                        ) : (
+                            <p className="text-gray-600 dark:text-gray-400">不支持预览此类型的文件</p>
+                        )}
                     </div>
                 </div>
             </div>
         );
     };
 
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-600 mb-4"></div>
+                    <p className="text-gray-600 dark:text-gray-400">加载中...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error || !assignment) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+                <div className="text-center">
+                    <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i className="fa-solid fa-exclamation-triangle text-red-600 dark:text-red-400 text-2xl"></i>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">加载失败</h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">{error || '未找到作业详情'}</p>
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                        返回
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div
-            className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-            {}
-            <header className="sticky top-0 z-40 bg-white dark:bg-gray-800 shadow-sm">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+            {/* 顶部导航栏 */}
+            <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30">
                 <div className="container mx-auto px-4">
                     <div className="flex items-center justify-between h-16">
                         <div className="flex items-center space-x-2">
-                            <i
-                                className="fa-solid fa-graduation-cap text-orange-600 dark:text-orange-400 text-xl"></i>
-                            <h1 className="text-lg font-semibold hidden sm:block">智慧教辅系统</h1>
+                            <i className="fa-solid fa-graduation-cap text-purple-600 dark:text-purple-400 text-xl"></i>
+                            <h1 className="text-lg font-semibold text-gray-800 dark:text-white hidden sm:block">智慧教辅系统</h1>
                         </div>
-                        <nav className="hidden md:flex items-center space-x-8">
-                            <Link
-                                to="/student/dashboard"
-                                className="text-gray-600 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 flex items-center">
-                                <i className="fa-solid fa-tachometer-alt mr-1"></i>
-                                <span>仪表盘</span>
-                            </Link>
-                            <Link
-                                to="/student/assignments"
-                                className="text-orange-600 dark:text-orange-400 font-medium flex items-center">
-                                <i className="fa-solid fa-clipboard-list mr-1"></i>
-                                <span>作业中心</span>
-                            </Link>
-                            <Link
-                                to="/student/resources"
-                                className="text-gray-600 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 flex items-center">
-                                <i className="fa-solid fa-book-open mr-1"></i>
-                                <span>学习资源</span>
-                            </Link>
-                            <Link
-                                to="/student/learning-assistant"
-                                className="text-gray-600 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 flex items-center">
-                                <i className="fa-solid fa-question-circle mr-1"></i>
-                                <span>学习助手</span>
-                            </Link>
-                        </nav>
+
                         <div className="flex items-center space-x-4">
-                            <button
-                                className="relative p-2 text-gray-600 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700">
-                                <i className="fa-solid fa-bell"></i>
-                                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                            </button>
-                            <div className="relative group">
-                                <button className="flex items-center space-x-2 focus:outline-none">
-                                    <div
-                                        className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                                        <i className="fa-solid fa-user-graduate text-gray-600 dark:text-gray-300"></i>
-                                    </div>
-                                    <span className="hidden md:inline text-sm font-medium">{user?.name || "学生"}</span>
-                                    <i className="fa-solid fa-chevron-down text-xs text-gray-500"></i>
+                            <Link to="/student/dashboard" className="text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400">
+                                <i className="fa-solid fa-home text-lg"></i>
+                            </Link>
+                            <div className="flex items-center space-x-2">
+                                <span className="text-sm text-gray-600 dark:text-gray-300">{user?.name || "学生"}</span>
+                                <button
+                                    onClick={logout}
+                                    className="text-sm text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400">
+                                    <i className="fa-solid fa-sign-out-alt"></i>
                                 </button>
-                                <div className="absolute right-0 mt-0 pt-2 w-48 z-50 hidden group-hover:block">
-                                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg py-1 border border-gray-200 dark:border-gray-700">
-                                        <button
-                                            onClick={logout}
-                                            className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center">
-                                            <i className="fa-solid fa-sign-out-alt mr-2 text-gray-500"></i>
-                                            <span>退出登录</span>
-                                        </button>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </header>
-            {}
+
+            {/* 主内容区 */}
             <main className="container mx-auto px-4 py-6">
-                {}
-                <div className="mb-6 flex items-center">
+                {/* 返回按钮 */}
+                <div className="mb-6">
                     <button
-                        onClick={() => navigate("/student/assignments")}
-                        className="text-gray-600 dark:text-gray-300 hover:text-orange-600 dark:hover:text-orange-400 mr-3">
-                        <i className="fa-solid fa-arrow-left text-lg"></i>
+                        onClick={() => navigate(-1)}
+                        className="flex items-center text-gray-600 dark:text-gray-300 hover:text-purple-600 dark:hover:text-purple-400 transition">
+                        <i className="fa-solid fa-arrow-left mr-2"></i>
+                        返回作业列表
                     </button>
-                    <div>
-                        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">作业详情</h2>
-                        <p className="text-gray-600 dark:text-gray-400">查看已批改作业详情</p>
-                    </div>
                 </div>
-                {}
-                {isLoading ? <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                    <div
-                        className="w-12 h-12 border-t-2 border-b-2 border-orange-500 rounded-full animate-spin mb-4"></div>
-                    <p className="text-gray-600 dark:text-gray-400">加载作业数据中...</p>
-                </div> : assignment ? <div className="space-y-6">
-                    {}
-                    <div
-                        className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-                        <div className="mb-6">
-                            <h3 className="text-xl font-semibold text-gray-800 dark:text-white">{assignment.name}</h3>
-                            <div className="flex items-center mt-2 space-x-4">
-                                <span
-                                    className="px-3 py-1 bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
+
+                {/* 作业详情卡片 */}
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+                    <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">{assignment.name}</h2>
+                            <div className="flex flex-wrap items-center gap-3 text-sm">
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    <i className="fa-solid fa-book mr-1"></i>
                                     {assignment.subject}
                                 </span>
-                                {assignment.status === "graded" && assignment.score !== undefined && <></>}
-                                <span
-                                    className={`px-3 py-1 rounded-full text-sm font-medium ${isAssignmentExpired(assignment.dueDate) ? "bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400" : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400"}`}>截止日期：{assignment.dueDate}({getDueDateStatus(assignment.dueDate)})
-                                                                                                                                                                                                                                                                                                                 </span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    <i className="fa-solid fa-calendar mr-1"></i>
+                                    布置: {assignment.assignedDate}
+                                </span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    <i className="fa-solid fa-clock mr-1"></i>
+                                    截止: {assignment.dueDate} {getDueDateStatus(assignment.dueDate)}
+                                </span>
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="flex items-center">
-                                <div
-                                    className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center mr-4">
-                                    <i
-                                        className="fa-solid fa-calendar-plus text-blue-600 dark:text-blue-400 text-xl"></i>
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">布置日期</p>
-                                    <p className="text-base font-medium text-gray-900 dark:text-white">{assignment.assignedDate}</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center">
-                                <div
-                                    className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center mr-4">
-                                    <i
-                                        className="fa-solid fa-clipboard-check text-purple-600 dark:text-purple-400 text-xl"></i>
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">作业状态</p>
-                                    <div className="flex items-center">
-                                        {getStatusBadge(assignment.status)}
-                                        {assignment.status === "graded" && assignment.score !== undefined && <></>}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {}
+                        <div>{getStatusBadge(assignment.status)}</div>
+                    </div>
+
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">作业要求</h3>
+                        <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{assignment.description}</p>
+                    </div>
+
+                    {/* 作业附件 */}
+                    {assignment.attachments && assignment.attachments.length > 0 && (
                         <div className="mt-6">
-                            <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">作业描述</h3>
-                            <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
-                                <p className="text-gray-600 dark:text-gray-300">{assignment.description}</p>
-                            </div>
-                        </div>
-                        {}
-                        {assignment.attachments && assignment.attachments.length > 0 && <div className="mt-6">
-                            <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">参考附件</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {assignment.attachments.map(attachment => <div
-                                    key={attachment.id}
-                                    className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                                    onClick={() => handleViewAttachment(attachment)}>
-                                    {attachment.type === "pdf" && <i className="fa-solid fa-file-pdf text-red-500 text-lg mr-3"></i>}
-                                    {attachment.type === "image" && <i className="fa-solid fa-file-image text-blue-500 text-lg mr-3"></i>}
-                                    {attachment.type === "video" && <i className="fa-solid fa-file-video text-green-500 text-lg mr-3"></i>}
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{attachment.name}</p>
-                                        <p className="text-xs text-gray-500 dark:text-gray-400">{attachment.type.toUpperCase()}</p>
+                            <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">作业附件</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                {assignment.attachments.map((attachment) => (
+                                    <div
+                                        key={attachment.id}
+                                        onClick={() => handleViewAttachment(attachment)}
+                                        className="flex items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-purple-400 dark:hover:border-purple-500 hover:shadow-md transition cursor-pointer">
+                                        <i className={`fa-solid ${attachment.type === 'pdf' ? 'fa-file-pdf text-red-500' : 'fa-file-image text-blue-500'} text-2xl mr-3`}></i>
+                                        <span className="text-sm text-gray-700 dark:text-gray-300 truncate flex-1">{attachment.name}</span>
                                     </div>
-                                    <i className="fa-solid fa-chevron-right text-gray-400"></i>
-                                </div>)}
+                                ))}
                             </div>
-                        </div>}
-                    </div>
-                    {}
-    {assignment.status === "graded" && <div
-      className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-      <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">已批改作业详情</h3>
-      {}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div
-          className="flex items-center justify-center p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-          <div className="text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">得分</p>
-            <p className="text-lg font-semibold text-orange-600 dark:text-orange-400">{assignment.score || 92}</p>
-          </div>
-        </div>
-        <div
-          className="flex items-center justify-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-          <div className="text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">批改老师</p>
-            <p className="text-lg font-semibold text-blue-600 dark:text-blue-400">{assignment.gradedBy || "张老师"}</p>
-          </div>
-        </div>
-        <div
-          className="flex items-center justify-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-          <div className="text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">批改时间</p>
-            <p className="text-lg font-semibold text-green-600 dark:text-green-400">{assignment.gradedAt || "2025-09-09 15:30:00"}</p>
-          </div>
-        </div>
-      </div>
-      {}
-      {assignment.comment && <div className="mb-6">
-        <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-2">老师评语</h4>
-        <div
-          className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-5 rounded-xl border-l-4 border-purple-500 dark:border-purple-600 shadow-sm">
-          <MarkdownRenderer content={assignment.comment} />
-        </div>
-      </div>}
-      {!assignment.comment && assignment.status === "graded" && <div className="mb-6">
-        <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-2">老师评语</h4>
-        <div
-          className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 p-5 rounded-xl border-l-4 border-purple-500 dark:border-purple-600 shadow-sm">
-          <p className="text-gray-700 dark:text-gray-300 leading-loose">整体表现良好，知识点掌握扎实，但在一些细节问题上还需要加强。建议多做一些相关练习，巩固对知识点的理解和应用能力。继续加油！</p>
-        </div>
-      </div>}
-      
-      {/* 学生上传的作业附件 */}
-      {assignment.studentAttachments && assignment.studentAttachments.length > 0 && (
-        <div className="mb-6">
-          <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-3">我的作业附件</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {assignment.studentAttachments.map((attachment) => (
-              <div 
-                key={attachment.id}
-                className="relative group cursor-pointer overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700"
-                onClick={() => handleViewAttachment(attachment)}
-              >
-                {attachment.type === "image" ? (
-                  <img
-                    src={attachment.url}
-                    alt={attachment.name}
-                    className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105" 
-                  />
-                ) : (
-                  <div className="w-full h-48 flex items-center justify-center bg-gray-200 dark:bg-gray-600">
-                    <i className="fa-solid fa-file text-5xl text-gray-400"></i>
-                  </div>
-                )}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-                  <p className="text-white font-medium truncate">{attachment.name}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-                    </div>}
-                    {}
-                    {assignment.status !== "graded" && <div
-                        className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
-                        <div
-                            className="w-16 h-16 mx-auto bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4">
-                            <i
-                                className={`fa-solid ${assignment.status === "pending" ? "fa-hourglass-half" : "fa-check-circle"} text-gray-400 text-2xl`}></i>
                         </div>
-                        <h3 className="text-lg font-medium text-gray-800 dark:text-white mb-1">
-                            {assignment.status === "pending" ? "作业待提交" : "作业待批改"}
-                        </h3>
-                        <p className="text-gray-500 dark:text-gray-400">
-                            {assignment.status === "pending" ? "请按时完成并提交作业" : "老师正在批改中，请耐心等待"}
-                        </p>
-                        {assignment.status === "pending" && <button
-                            onClick={() => navigate(`/student/assignments/submit/${assignment.id}`)}
-                            className="mt-4 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors">提交作业
-                                                                                                                                                                                                                                                  </button>}
-                    </div>}
-                </div> : <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                    <div
-                        className="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mb-4">
-                        <i className="fa-solid fa-exclamation-circle text-gray-400 text-2xl"></i>
-                    </div>
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">未找到作业详情</h3>
-                    <p className="text-gray-500 dark:text-gray-400">请检查作业ID是否正确</p>
-                    <button
-                        onClick={() => navigate("/student/assignments")}
-                        className="mt-4 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors">返回作业中心
-                                                                                                                                                                                                            </button>
-                </div>}
-            </main>
-            {}
-            <footer
-                className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-6 mt-12">
-                <div
-                    className="container mx-auto px-4 text-center text-gray-500 dark:text-gray-400 text-sm">
-                    <p>© 2025 智慧教辅系统 - 学生后台</p>
+                    )}
                 </div>
-            </footer>
-            {}
+
+                {/* 我的提交 */}
+                {assignment.status !== 'pending' && assignment.studentAttachments && assignment.studentAttachments.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3 flex items-center">
+                            <i className="fa-solid fa-upload mr-2 text-green-600 dark:text-green-400"></i>
+                            我的提交
+                        </h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            {assignment.studentAttachments.map((attachment) => (
+                                <div
+                                    key={attachment.id}
+                                    onClick={() => handleViewAttachment(attachment)}
+                                    className="flex items-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800 hover:border-green-400 dark:hover:border-green-600 hover:shadow-md transition cursor-pointer">
+                                    <i className={`fa-solid ${attachment.type === 'pdf' ? 'fa-file-pdf text-red-500' : 'fa-file-image text-blue-500'} text-2xl mr-3`}></i>
+                                    <span className="text-sm text-gray-700 dark:text-gray-300 truncate flex-1">{attachment.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* 批改结果 */}
+                {assignment.status === 'graded' && (
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4 flex items-center">
+                            <i className="fa-solid fa-check-circle mr-2 text-purple-600 dark:text-purple-400"></i>
+                            批改结果
+                        </h3>
+
+                        {/* 分数和批改信息 */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
+                                <div className="text-sm text-purple-700 dark:text-purple-300 mb-1">得分</div>
+                                <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">{assignment.score || '--'}</div>
+                            </div>
+                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                                <div className="text-sm text-blue-700 dark:text-blue-300 mb-1">批改教师</div>
+                                <div className="text-lg font-semibold text-blue-600 dark:text-blue-400">{assignment.gradedBy || '--'}</div>
+                            </div>
+                            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                                <div className="text-sm text-green-700 dark:text-green-300 mb-1">批改时间</div>
+                                <div className="text-sm font-medium text-green-600 dark:text-green-400">{assignment.gradedAt || '--'}</div>
+                            </div>
+                        </div>
+
+                        {/* 教师评语 */}
+                        {assignment.comment && (
+                            <div className="mb-6">
+                                <h4 className="text-base font-semibold text-gray-800 dark:text-white mb-3 flex items-center">
+                                    <i className="fa-solid fa-comment-dots mr-2 text-indigo-600 dark:text-indigo-400"></i>
+                                    教师评语
+                                </h4>
+                                <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                                    <MarkdownRenderer content={assignment.comment} />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 批改附件 */}
+                        {assignment.gradedAttachments && assignment.gradedAttachments.length > 0 && (
+                            <div>
+                                <h4 className="text-base font-semibold text-gray-800 dark:text-white mb-3">批改附件</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                    {assignment.gradedAttachments.map((attachment) => (
+                                        <div
+                                            key={attachment.id}
+                                            onClick={() => handleViewAttachment(attachment)}
+                                            className="flex items-center p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 hover:border-amber-400 dark:hover:border-amber-600 hover:shadow-md transition cursor-pointer">
+                                            <i className={`fa-solid ${attachment.type === 'pdf' ? 'fa-file-pdf text-red-500' : 'fa-file-image text-blue-500'} text-2xl mr-3`}></i>
+                                            <span className="text-sm text-gray-700 dark:text-gray-300 truncate flex-1">{attachment.name}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* 提交作业按钮 */}
+                {assignment.status === 'pending' && !isAssignmentExpired(assignment.dueDate) && (
+                    <div className="mt-6 flex justify-center">
+                        <button
+                            onClick={() => navigate(`/student/assignments/submit/${assignment.id}`)}
+                            className="px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg shadow-lg hover:shadow-xl transition">
+                            <i className="fa-solid fa-upload mr-2"></i>
+                            提交作业
+                        </button>
+                    </div>
+                )}
+            </main>
+
+            {/* 附件预览模态框 */}
             {showAttachmentPreview && renderAttachmentPreview()}
         </div>
     );

@@ -2,82 +2,20 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { getAssignments, deleteAssignment, updateAssignment } from "@/services/assignmentApi";
 
 interface Assignment {
     id: number;
-    name: string;
+    title: string;
     subject: string;
-    assignedDate: string;
-    dueDate: string;
-    totalStudents: number;
-    completed: number;
-    pending: number;
-    status: "draft" | "published";
-    selectedStudents?: number[];
-    isAllStudents?: boolean;
+    created_at: string;
+    deadline: string;
+    total_score: number;
+    status: "draft" | "published" | "closed";
+    submitted_count?: number;
+    total_count?: number;
+    class_id?: number;
 }
-
-const mockAssignments: Assignment[] = [{
-    id: 1,
-    name: "高中数学函数基础练习",
-    subject: "数学",
-    assignedDate: "2025-09-01",
-    dueDate: "2025-09-10",
-    totalStudents: 45,
-    completed: 38,
-    pending: 7,
-    status: "published"
-}, {
-    id: 2,
-    name: "物理力学实验报告",
-    subject: "物理",
-    assignedDate: "2025-09-02",
-    dueDate: "2025-09-12",
-    totalStudents: 45,
-    completed: 25,
-    pending: 20,
-    status: "published"
-}, {
-    id: 3,
-    name: "英语阅读理解训练",
-    subject: "英语",
-    assignedDate: "2025-09-03",
-    dueDate: "2025-09-15",
-    totalStudents: 45,
-    completed: 42,
-    pending: 3,
-    status: "published"
-}, {
-    id: 4,
-    name: "化学元素周期表练习",
-    subject: "化学",
-    assignedDate: "2025-09-05",
-    dueDate: "2025-09-18",
-    totalStudents: 45,
-    completed: 15,
-    pending: 30,
-    status: "published"
-}, {
-    id: 5,
-    name: "历史事件时间轴制作",
-    subject: "历史",
-    assignedDate: "2025-09-06",
-    dueDate: "2025-09-20",
-    totalStudents: 45,
-    completed: 10,
-    pending: 35,
-    status: "draft"
-}, {
-    id: 6,
-    name: "地理气候类型分析",
-    subject: "地理",
-    assignedDate: "2025-09-08",
-    dueDate: "2025-09-25",
-    totalStudents: 45,
-    completed: 5,
-    pending: 40,
-    status: "draft"
-}];
 
 export default function AssignmentsManagement() {
     const {
@@ -91,29 +29,38 @@ export default function AssignmentsManagement() {
     const [filteredAssignments, setFilteredAssignments] = useState<Assignment[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            const savedAssignments = localStorage.getItem("teacherAssignments");
-
-            if (savedAssignments) {
-                try {
-                    const parsedAssignments = JSON.parse(savedAssignments);
-                    setAssignments(parsedAssignments);
-                    setFilteredAssignments(parsedAssignments);
-                } catch (error) {
-                    console.error("Failed to parse saved assignments:", error);
-                    setAssignments(mockAssignments);
-                    setFilteredAssignments(mockAssignments);
-                }
-            } else {
-                setAssignments(mockAssignments);
-                setFilteredAssignments(mockAssignments);
-            }
-
+    // 加载作业列表
+    const loadAssignments = async () => {
+        try {
+            setIsLoading(true);
+            const response = await getAssignments({ page: 1, pageSize: 100 });
+            console.log('作业列表数据:', response);
+            const assignmentsData = response.data.items || [];
+            // 映射数据结构以匹配组件需要的格式
+            const formattedData = assignmentsData.map((item: any) => ({
+                id: item.id,
+                title: item.title,
+                subject: item.subject,
+                created_at: item.createdAt,
+                deadline: item.deadline,
+                total_score: item.totalScore,
+                status: item.status,
+                submitted_count: item.submittedCount,
+                total_count: item.totalCount,
+                class_id: item.classId
+            }));
+            setAssignments(formattedData);
+            setFilteredAssignments(formattedData);
+        } catch (err: any) {
+            console.error('加载作业列表失败:', err);
+            toast.error('加载作业失败: ' + (err.message || '未知错误'));
+        } finally {
             setIsLoading(false);
-        }, 800);
+        }
+    };
 
-        return () => clearTimeout(timer);
+    useEffect(() => {
+        loadAssignments();
     }, []);
 
     useEffect(() => {
@@ -131,7 +78,7 @@ export default function AssignmentsManagement() {
         const term = searchTerm.toLowerCase();
 
         const results = assignments.filter(assignment => {
-            const assignmentName = assignment.name.toLowerCase();
+            const assignmentName = assignment.title.toLowerCase();
             return assignmentName === term || assignmentName.includes(term);
         });
 
@@ -151,12 +98,49 @@ export default function AssignmentsManagement() {
         }
     };
 
-    const handleViewDetails = (assignmentId: number) => {
-        window.open(`/teacher/assignments/detail/${assignmentId}`, "_blank");
+    const handleDeleteAssignment = async (assignmentId: number, title: string) => {
+        if (!confirm(`确定要删除作业"${title}"吗？删除后将无法恢复。`)) {
+            return;
+        }
+
+        try {
+            await deleteAssignment(assignmentId);
+            toast.success("作业删除成功");
+            loadAssignments(); // 重新加载列表
+        } catch (err: any) {
+            console.error('删除作业失败:', err);
+            toast.error('删除作业失败: ' + (err.message || '未知错误'));
+        }
     };
 
-    const handleViewProgress = (assignmentId: number) => {
-        window.open(`/teacher/assignments/progress/${assignmentId}`, "_blank");
+    const handleCloseAssignment = async (assignmentId: number, title: string) => {
+        if (!confirm(`确定要关闭作业"${title}"吗？关闭后学生将无法继续提交。`)) {
+            return;
+        }
+
+        try {
+            await updateAssignment(assignmentId, { status: 'closed' });
+            toast.success("作业已关闭");
+            loadAssignments(); // 重新加载列表
+        } catch (err: any) {
+            console.error('关闭作业失败:', err);
+            toast.error('关闭作业失败: ' + (err.message || '未知错误'));
+        }
+    };
+
+    const handleReopenAssignment = async (assignmentId: number, title: string) => {
+        if (!confirm(`确定要重新开放作业"${title}"吗？`)) {
+            return;
+        }
+
+        try {
+            await updateAssignment(assignmentId, { status: 'published' });
+            toast.success("作业已重新开放");
+            loadAssignments(); // 重新加载列表
+        } catch (err: any) {
+            console.error('重新开放作业失败:', err);
+            toast.error('重新开放作业失败: ' + (err.message || '未知错误'));
+        }
     };
 
     return (
@@ -329,18 +313,24 @@ export default function AssignmentsManagement() {
                                         <div className="text-sm text-gray-900 dark:text-gray-100">{index + 1}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{assignment.name}</div>
+                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{assignment.title}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm text-gray-600 dark:text-gray-300">{assignment.subject}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{assignment.assignedDate}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {assignment.created_at ? new Date(assignment.created_at).toLocaleDateString('zh-CN') : '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span
-                                            className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${assignment.status === "published" ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400" : "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-400"}`}>
-                                            {assignment.status === "published" ? "已布置" : "待布置"}
+                                            className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                                assignment.status === "published" ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400" : 
+                                                assignment.status === "closed" ? "bg-gray-100 text-gray-800 dark:bg-gray-900/50 dark:text-gray-400" :
+                                                "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-400"
+                                            }`}>
+                                            {assignment.status === "published" ? "已发布" : assignment.status === "closed" ? "已关闭" : "草稿"}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -350,37 +340,72 @@ export default function AssignmentsManagement() {
                                                 <div
                                                     className="bg-green-600 dark:bg-green-500 h-2.5 rounded-full transition-all flex items-center justify-center relative"
                                                     style={{
-                                                        width: `${assignment.completed / assignment.totalStudents * 100}%`
+                                                        width: `${(assignment.submitted_count || 0) / (assignment.total_count || 1) * 100}%`
                                                     }}>
                                                     <span
                                                         className="text-white text-sm font-medium whitespace-nowrap absolute left-0 right-0 text-center"
                                                         style={{
                                                             fontSize: "12px"
-                                                        }}>{assignment.completed}</span>
+                                                        }}>{assignment.submitted_count || 0}</span>
                                                 </div>
-                                                {assignment.pending > 0 && <span
+                                                {(assignment.total_count || 0) - (assignment.submitted_count || 0) > 0 && <span
                                                     className="text-gray-700 dark:text-gray-300 text-sm font-medium absolute right-0 top-0 bottom-0 flex items-center justify-center pr-2"
                                                     style={{
                                                         fontSize: "12px"
                                                     }}>
-                                                    {assignment.pending}
+                                                    {(assignment.total_count || 0) - (assignment.submitted_count || 0)}
                                                 </span>}
                                             </div>
                                         </div>}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        <div className="flex space-x-2">
-                                            {assignment.status === "draft" ? <button
-                                                onClick={() => handleEditAssignment(assignment.id)}
-                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center mr-4">
-                                                <i className="fa-solid fa-edit mr-1"></i>
-                                                <span>编辑</span>
-                                            </button> : <button
-                                                onClick={() => navigate(`/teacher/assignments/progress/${assignment.id}`)}
-                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center">
-                                                <i className="fa-solid fa-eye mr-1"></i>
-                                                <span>查看详情</span>
-                                            </button>}
+                                        <div className="flex flex-wrap gap-2">
+                                            {assignment.status === "draft" ? (
+                                                <>
+                                                    <button
+                                                        onClick={() => handleEditAssignment(assignment.id)}
+                                                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center">
+                                                        <i className="fa-solid fa-edit mr-1"></i>
+                                                        <span>编辑</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteAssignment(assignment.id, assignment.title)}
+                                                        className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 flex items-center">
+                                                        <i className="fa-solid fa-trash mr-1"></i>
+                                                        <span>删除</span>
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        onClick={() => navigate(`/teacher/assignments/progress/${assignment.id}`)}
+                                                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center">
+                                                        <i className="fa-solid fa-eye mr-1"></i>
+                                                        <span>查看详情</span>
+                                                    </button>
+                                                    {assignment.status === "published" ? (
+                                                        <button
+                                                            onClick={() => handleCloseAssignment(assignment.id, assignment.title)}
+                                                            className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300 flex items-center">
+                                                            <i className="fa-solid fa-lock mr-1"></i>
+                                                            <span>关闭</span>
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleReopenAssignment(assignment.id, assignment.title)}
+                                                            className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 flex items-center">
+                                                            <i className="fa-solid fa-lock-open mr-1"></i>
+                                                            <span>重新开放</span>
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleDeleteAssignment(assignment.id, assignment.title)}
+                                                        className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 flex items-center">
+                                                        <i className="fa-solid fa-trash mr-1"></i>
+                                                        <span>删除</span>
+                                                    </button>
+                                                </>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>)}

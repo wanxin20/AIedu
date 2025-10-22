@@ -1,65 +1,8 @@
-import { useContext, useState, useEffect } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
-
-const logData = [{
-    id: 1,
-    user: "系统管理员",
-    action: "创建班级",
-    details: "高一(3)班",
-    ip: "192.168.1.5",
-    timestamp: "2023-11-20 09:23:45"
-}, {
-    id: 2,
-    user: "张老师",
-    action: "上传资源",
-    details: "数学函数课件.pdf",
-    ip: "192.168.1.101",
-    timestamp: "2023-11-20 08:45:12"
-}, {
-    id: 3,
-    user: "李同学",
-    action: "提交作业",
-    details: "数学-函数基础练习",
-    ip: "192.168.1.156",
-    timestamp: "2023-11-19 16:30:22"
-}, {
-    id: 4,
-    user: "王老师",
-    action: "布置作业",
-    details: "英语语法巩固练习",
-    ip: "192.168.1.105",
-    timestamp: "2023-11-19 14:20:18"
-}, {
-    id: 5,
-    user: "系统管理员",
-    action: "修改密码策略",
-    details: "密码最小长度设为8位",
-    ip: "192.168.1.5",
-    timestamp: "2023-11-18 10:15:33"
-}, {
-    id: 6,
-    user: "系统管理员",
-    action: "归档班级",
-    details: "高二(4)班",
-    ip: "192.168.1.5",
-    timestamp: "2023-11-17 15:42:05"
-}, {
-    id: 7,
-    user: "赵老师",
-    action: "生成教案",
-    details: "物理-力学基础",
-    ip: "192.168.1.103",
-    timestamp: "2023-11-17 11:30:45"
-}, {
-    id: 8,
-    user: "系统管理员",
-    action: "重置密码",
-    details: "用户：孙老师",
-    ip: "192.168.1.5",
-    timestamp: "2023-11-16 09:25:11"
-}];
+import { getLogs, exportLogs } from "@/services/logApi";
 
 export default function LogsManagement() {
     const {
@@ -70,15 +13,54 @@ export default function LogsManagement() {
     const navigate = useNavigate();
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
-    const [logs, setLogs] = useState(logData);
+    const [logs, setLogs] = useState<any[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const isInitializedRef = useRef(false);
+
+    // 加载日志列表
+    const loadLogs = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const response = await getLogs({ 
+                page: currentPage, 
+                pageSize: 20,
+                keyword: searchTerm || undefined
+            });
+            console.log('✅ 日志列表加载成功，共', response.data?.total || 0, '条记录');
+            console.log('📋 当前页显示', response.data?.items?.length || 0, '条日志');
+            setLogs(response.data.items || []);
+            setTotalPages(Math.ceil((response.data.total || 0) / 20));
+            
+            if (response.data.total === 0) {
+                console.log('ℹ️ 数据库中暂无操作日志。日志会在用户登录、创建、修改等操作时自动记录。');
+            }
+        } catch (err: any) {
+            console.error('❌ 加载日志列表失败:', err);
+            setError(err.message || '加载数据失败');
+            toast.error('加载日志失败: ' + (err.message || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setIsLoading(false);
-        }, 800);
-
-        return () => clearTimeout(timer);
+        if (isInitializedRef.current) {
+            return;
+        }
+        isInitializedRef.current = true;
+        loadLogs();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    
+    useEffect(() => {
+        if (isInitializedRef.current) {
+            loadLogs();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentPage]);
 
     useEffect(() => {
         if (user && user.role !== "admin") {
@@ -86,13 +68,26 @@ export default function LogsManagement() {
         }
     }, [user, navigate]);
 
-    const handleExportLogs = () => {
-        toast.success("日志导出功能已触发，文件正在生成中");
+    // 搜索功能
+    const handleSearch = () => {
+        setCurrentPage(1);
+        loadLogs();
     };
 
-    const filteredLogs = logs.filter(
-        log => log.user.toLowerCase().includes(searchTerm.toLowerCase()) || log.action.toLowerCase().includes(searchTerm.toLowerCase()) || log.details.toLowerCase().includes(searchTerm.toLowerCase()) || log.ip.includes(searchTerm)
-    );
+    // 导出日志
+    const handleExportLogs = async () => {
+        try {
+            await exportLogs({
+                startDate: undefined,
+                endDate: undefined
+            });
+            
+            toast.success("日志导出成功");
+        } catch (err: any) {
+            console.error('导出日志失败:', err);
+            toast.error('导出失败: ' + (err.message || '未知错误'));
+        }
+    };
 
     return (
         <div
@@ -236,31 +231,61 @@ export default function LogsManagement() {
                             </thead>
                             <tbody
                                 className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                {filteredLogs.length > 0 ? filteredLogs.map(log => <tr
+                                {logs.length > 0 ? logs.map(log => <tr
                                     key={log.id}
                                     className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-gray-800 dark:text-white">{log.user}</div>
+                                        <div className="text-sm font-medium text-gray-800 dark:text-white">
+                                            {log.userName || '匿名'}
+                                        </div>
+                                        {log.userRole && (
+                                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                                                {log.userRole === 'admin' ? '管理员' : log.userRole === 'teacher' ? '教师' : '学生'}
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{log.action}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {log.module ? `${log.module} / ${log.action}` : log.action || '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate">{log.details}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300 max-w-xs truncate" title={log.description}>
+                                            {log.description || '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{log.ip}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {log.ipAddress || '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{log.timestamp}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {log.createdAt ? new Date(log.createdAt).toLocaleString('zh-CN', {
+                                                year: 'numeric',
+                                                month: '2-digit',
+                                                day: '2-digit',
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                                second: '2-digit'
+                                            }) : '-'}
+                                        </div>
                                     </td>
                                 </tr>) : <tr>
                                     <td
                                         colSpan={5}
                                         className="px-6 py-10 text-center text-gray-500 dark:text-gray-400">
                                         <div className="flex flex-col items-center">
-                                            <i className="fa-solid fa-search text-2xl mb-2"></i>
-                                            <p>未找到匹配的日志记录</p>
+                                            <i className="fa-solid fa-clipboard-list text-4xl mb-3 text-gray-400"></i>
+                                            <p className="text-lg font-medium mb-2">暂无操作日志</p>
+                                            <p className="text-sm">系统会自动记录以下操作：</p>
+                                            <ul className="text-sm text-left mt-2 space-y-1">
+                                                <li>• 用户登录、注册、登出</li>
+                                                <li>• 创建、修改、删除用户</li>
+                                                <li>• 创建、修改、删除班级</li>
+                                                <li>• 文件上传和删除</li>
+                                            </ul>
+                                            <p className="text-xs mt-3 text-gray-400">执行上述操作后，日志将自动显示在这里</p>
                                         </div>
                                     </td>
                                 </tr>}
@@ -268,22 +293,25 @@ export default function LogsManagement() {
                         </table>
                     </div>
                     {}
-                    {filteredLogs.length > 0 && <div
+                    {logs.length > 0 && <div
                         className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                        <div className="text-sm text-gray-600 dark:text-gray-400">显示 <span className="font-medium">1</span>到 <span className="font-medium">{filteredLogs.length}</span>条，共 <span className="font-medium">{logs.length}</span>条记录
-                                            </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                            显示第 <span className="font-medium">{currentPage}</span> 页，共 <span className="font-medium">{totalPages}</span> 页
+                        </div>
                         <div className="flex space-x-1">
                             <button
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                 className="px-3 py-1 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled>
+                                disabled={currentPage === 1}>
                                 <i className="fa-solid fa-chevron-left text-xs"></i>
                             </button>
                             <button
-                                className="px-3 py-1 border border-gray-300 dark:border-gray-700 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50">1
-                                                  </button>
+                                className="px-3 py-1 border border-gray-300 dark:border-gray-700 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/50">{currentPage}
+                            </button>
                             <button
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                 className="px-3 py-1 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled>
+                                disabled={currentPage === totalPages}>
                                 <i className="fa-solid fa-chevron-right text-xs"></i>
                             </button>
                         </div>

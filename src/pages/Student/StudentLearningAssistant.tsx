@@ -1,12 +1,23 @@
-import { useState, useEffect, useContext, useRef } from 'react';
+import { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import { chatWithAssistant } from '@/services/learningAssistantApi';
+import { 
+  getConversations, 
+  getConversationDetail, 
+  createConversation, 
+  updateConversation, 
+  deleteConversation as deleteConversationApi,
+  saveMessagesBatch 
+} from '@/services/conversationApi';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 // 定义消息接口
 interface Message {
@@ -19,12 +30,13 @@ interface Message {
 
 // 定义会话接口
 interface ChatSession {
-  id: string;
+  id: number | string; // 兼容后端数字ID和前端临时字符串ID
   title: string;
   lastMessage: string;
   timestamp: Date;
   messages: Message[];
   conversationId?: string; // Coze API 的会话ID，用于保持上下文
+  messageCount?: number; // 消息数量
 }
 
 export default function StudentLearningAssistant() {
@@ -35,13 +47,23 @@ export default function StudentLearningAssistant() {
   const [isTyping, setIsTyping] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<number | string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [streamingText, setStreamingText] = useState('');
   const [currentConversationId, setCurrentConversationId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [autoSendTriggered, setAutoSendTriggered] = useState(false);
+  const [isSending, setIsSending] = useState(false); // 使用 state 而不是 ref，可以触发重新渲染
+  const lastSendTimeRef = useRef<number>(0); // 最后一次发送的时间戳，用于防抖
+  const messagesRef = useRef<Message[]>(messages); // 使用 ref 来避免 useCallback 依赖 messages
+  const isInitializedRef = useRef(false); // 防止重复初始化
+  const savedMessageCountRef = useRef<number>(0); // 追踪已保存的消息数量
+
+  // 同步 messages 到 ref
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -50,10 +72,16 @@ export default function StudentLearningAssistant() {
 
   // 初始化欢迎消息和会话
   useEffect(() => {
+    // 防止重复初始化（React.StrictMode 会导致组件挂载两次）
+    if (isInitializedRef.current) {
+      return;
+    }
+    isInitializedRef.current = true;
+    
     // 创建初始欢迎消息
     const welcomeMessage: Message = {
       id: 'welcome',
-      content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
+      content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗?',
       sender: 'assistant',
       timestamp: new Date(),
     };
@@ -85,13 +113,16 @@ export default function StudentLearningAssistant() {
     return () => {
       window.removeEventListener('resize', handleResize);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 处理从其他页面传递过来的问题（如从 Dashboard）
   useEffect(() => {
     const state = location.state as { question?: string } | null;
     
-    if (state?.question && !autoSendTriggered && !isTyping && messages.length > 0) {
+    // 严格条件：只有在初始状态（仅有欢迎消息）且有问题时才自动发送
+    // messages.length === 1 确保只在初始状态触发，避免加载历史会话时误触发
+    if (state?.question && !autoSendTriggered && !isTyping && messages.length === 1 && !currentSessionId) {
       setAutoSendTriggered(true);
       
       // 等待欢迎消息渲染完成后自动发送
@@ -107,117 +138,224 @@ export default function StudentLearningAssistant() {
       return () => clearTimeout(timer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state, autoSendTriggered, isTyping, messages.length]);
+  }, [location.state, autoSendTriggered, isTyping, messages.length, currentSessionId]);
 
-  // 保存当前对话
-  const saveCurrentChat = () => {
-    if (messages.length <= 1) return; // 只有欢迎消息，不需要保存
+  // 保存新消息到后端（只保存未保存的新消息）
+  const saveNewMessages = async (newMessages: Message[]) => {
+    if (newMessages.length === 0) return;
     
     try {
-      let sessions = [...chatSessions];
-      let currentSession: ChatSession | undefined;
+      // 生成调用追踪信息
+      const callstack = new Error().stack;
+      console.log('💾💾💾 saveNewMessages 被调用');
+      console.log('   时间戳:', new Date().toLocaleTimeString() + '.' + new Date().getMilliseconds());
+      console.log('   消息数量:', newMessages.length);
+      console.log('   会话ID:', currentSessionId);
+      console.log('   消息内容:', newMessages.map(m => `[${m.sender}] ${m.content.substring(0, 20)}`));
+      console.log('   调用栈:', callstack);
       
-      if (currentSessionId) {
-        // 更新现有会话
-        currentSession = sessions.find(s => s.id === currentSessionId);
-        if (currentSession) {
-          currentSession.messages = [...messages];
-          currentSession.lastMessage = messages[messages.length - 1].content;
-          currentSession.timestamp = new Date();
-          currentSession.conversationId = currentConversationId; // 保存会话ID
-        }
-      } else {
-        // 创建新会话
-        const newSession: ChatSession = {
-          id: `session-${Date.now()}`,
-          title: generateSessionTitle(messages),
-          lastMessage: messages[messages.length - 1].content,
-          timestamp: new Date(),
-          messages: [...messages],
-          conversationId: currentConversationId, // 保存会话ID
-        };
-        sessions.unshift(newSession);
-        setCurrentSessionId(newSession.id);
+      // 过滤掉欢迎消息
+      const messagesToSave = newMessages.filter(msg => 
+        msg.id !== 'welcome' && !msg.id.startsWith('welcome-')
+      );
+      
+      if (messagesToSave.length === 0) {
+        console.log('💾 没有需要保存的消息（都是欢迎消息）');
+        return;
       }
       
-      setChatSessions(sessions);
-      localStorage.setItem('learningAssistantChatHistory', JSON.stringify(sessions));
+      if (currentSessionId && typeof currentSessionId === 'number') {
+        // 更新现有会话（保存新消息）
+        console.log('💾 更新现有会话', currentSessionId);
+        
+        await saveMessagesBatch(
+          currentSessionId,
+          messagesToSave.map(msg => ({
+            sender: msg.sender,
+            content: msg.content,
+            suggestedQuestions: msg.suggestedQuestions
+          }))
+        );
+        
+        // 更新会话的cozeConversationId
+        if (currentConversationId) {
+          await updateConversation(currentSessionId, {
+            cozeConversationId: currentConversationId
+          });
+        }
+        
+        // 更新本地会话列表
+        const lastMessage = messagesToSave[messagesToSave.length - 1];
+        setChatSessions(prev => prev.map(session => 
+          session.id === currentSessionId
+            ? {
+                ...session,
+                lastMessage: lastMessage.content,
+                timestamp: new Date(),
+                conversationId: currentConversationId,
+                messageCount: (session.messageCount || 0) + messagesToSave.length
+              }
+            : session
+        ));
+        
+        console.log('✅ 消息保存成功（现有会话）');
+      } else {
+        // 创建新会话
+        console.log('💾 创建新会话并保存消息');
+        
+        // ⚠️ 使用传入的 messagesToSave，而不是 messagesRef.current
+        // 因为 setMessages 是异步的，ref 可能还没更新
+        const title = messagesToSave.length > 0 
+          ? messagesToSave[0].content.substring(0, 30) + (messagesToSave[0].content.length > 30 ? '...' : '')
+          : '新对话';
+        
+        console.log('💾 准备创建会话', {
+          title,
+          messageCount: messagesToSave.length,
+          cozeConversationId: currentConversationId
+        });
+        
+        const response = await createConversation({
+          title,
+          cozeConversationId: currentConversationId || undefined
+        });
+        
+        const newSessionId = response.data.id;
+        console.log('💾 会话创建成功，ID:', newSessionId);
+        
+        setCurrentSessionId(newSessionId);
+        
+        // 保存传入的新消息到新会话
+        await saveMessagesBatch(
+          newSessionId,
+          messagesToSave.map(msg => ({
+            sender: msg.sender,
+            content: msg.content,
+            suggestedQuestions: msg.suggestedQuestions
+          }))
+        );
+        
+        console.log('💾 消息保存到数据库成功');
+        
+        // 添加到本地会话列表
+        const lastMessage = messagesToSave[messagesToSave.length - 1];
+        const newSession: ChatSession = {
+          id: newSessionId,
+          title,
+          lastMessage: lastMessage.content,
+          timestamp: new Date(),
+          messages: [...newMessages], // 使用传入的 newMessages
+          conversationId: currentConversationId,
+          messageCount: messagesToSave.length
+        };
+        
+        setChatSessions(prev => [newSession, ...prev]);
+        
+        // 更新已保存消息数量
+        savedMessageCountRef.current = messagesToSave.length;
+        
+        console.log('✅ 消息保存成功（新会话）', {
+          sessionId: newSessionId,
+          messageCount: messagesToSave.length,
+          title
+        });
+      }
     } catch (error) {
-      console.error('保存对话失败:', error);
+      console.error('❌ 保存对话失败:', error);
+      // 静默失败，不影响用户体验
     }
-  };
-
-  // 监听消息变化，自动保存
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      saveCurrentChat();
-    }, 2000);
-    
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, currentSessionId, currentConversationId]);
-
-  // 生成会话标题
-  const generateSessionTitle = (messageList: Message[]) => {
-    // 提取用户的第一条消息作为标题
-    const firstUserMessage = messageList.find(m => m.sender === 'user');
-    if (firstUserMessage) {
-      return firstUserMessage.content.substring(0, 30) + (firstUserMessage.content.length > 30 ? '...' : '');
-    }
-    return '新对话';
   };
 
   // 加载对话历史
-  const loadChatHistory = () => {
+  const loadChatHistory = async () => {
     setIsLoadingHistory(true);
     
     try {
-      const savedSessions = localStorage.getItem('learningAssistantChatHistory');
-      if (savedSessions) {
-        const sessions: ChatSession[] = JSON.parse(savedSessions);
-        // 转换时间戳字符串为Date对象
-        const parsedSessions = sessions.map(session => ({
-          ...session,
-          timestamp: new Date(session.timestamp),
-          messages: session.messages.map(msg => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp)
-          }))
-        }));
-        setChatSessions(parsedSessions);
-      } else {
-        // 如果没有保存的历史，创建模拟数据
-        createMockChatHistory();
-      }
+      const response = await getConversations({ page: 1, pageSize: 100 });
+      
+      // 转换后端数据格式为前端格式
+      const sessions: ChatSession[] = response.data.items.map(item => ({
+        id: item.id,
+        title: item.title,
+        lastMessage: item.lastMessage || '',
+        timestamp: new Date(item.lastMessageAt || item.createdAt),
+        messages: [], // 消息会在加载会话详情时获取
+        conversationId: item.cozeConversationId || undefined,
+        messageCount: item.messageCount
+      }));
+      
+      setChatSessions(sessions);
+      console.log('✅ 从后端加载了', sessions.length, '个会话');
     } catch (error) {
       console.error('加载对话历史失败:', error);
-      // 如果加载失败，创建模拟数据
-      createMockChatHistory();
+      toast.error('加载历史会话失败');
+      // 如果加载失败，设置为空数组
+      setChatSessions([]);
     } finally {
       setIsLoadingHistory(false);
     }
   };
 
   // 加载特定会话
-  const loadChatSession = (sessionId: string) => {
+  const loadChatSession = async (sessionId: number | string) => {
     try {
-      const session = chatSessions.find(s => s.id === sessionId);
-      if (session) {
-        setMessages(session.messages);
-        setCurrentSessionId(session.id);
-        const loadedConversationId = session.conversationId || '';
-        setCurrentConversationId(loadedConversationId);
-        
-        console.log('📂 加载历史会话');
-        console.log('   会话列表ID:', sessionId);
-        console.log('   Coze会话ID:', loadedConversationId || '无（这是旧会话，没有保存会话ID）');
-        console.log('   消息数量:', session.messages.length);
-        console.log('   ⚠️ 注意:', loadedConversationId ? '可以继续对话并保持上下文' : '旧会话没有会话ID，继续对话将创建新的上下文');
-        
-        // 在移动设备上，加载会话后关闭侧边栏
-        if (window.innerWidth < 768) {
-          setShowSidebar(false);
-        }
+      if (typeof sessionId !== 'number') {
+        console.error('无效的会话ID:', sessionId);
+        return;
+      }
+      
+      // 防止重复加载同一个会话
+      if (sessionId === currentSessionId) {
+        console.log('⚠️ 已经是当前会话，跳过加载');
+        return;
+      }
+      
+      // 防止在加载中或发送中时切换会话
+      if (isLoadingHistory || isTyping || isSending) {
+        console.log('⚠️ 正在加载或发送中，跳过会话切换');
+        return;
+      }
+      
+      // 从后端加载会话详情
+      const response = await getConversationDetail(sessionId);
+      const sessionData = response.data;
+      
+      // 转换消息格式
+      const apiMessages = sessionData.messages || [];
+      const formattedMessages: Message[] = apiMessages.map(msg => ({
+        id: msg.id?.toString() || `msg-${Date.now()}`,
+        content: msg.content,
+        sender: msg.sender,
+        timestamp: new Date(msg.timestamp || Date.now()),
+        suggestedQuestions: msg.suggestedQuestions
+      }));
+      
+      // 添加欢迎消息到开头（如果没有）
+      const welcomeMessage: Message = {
+        id: 'welcome',
+        content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
+        sender: 'assistant',
+        timestamp: new Date(sessionData.createdAt),
+      };
+      
+      setMessages([welcomeMessage, ...formattedMessages]);
+      setCurrentSessionId(sessionData.id);
+      const loadedConversationId = sessionData.cozeConversationId || '';
+      setCurrentConversationId(loadedConversationId);
+      
+      // 更新已保存消息数量（历史会话的消息都已保存）
+      savedMessageCountRef.current = formattedMessages.length;
+      
+      console.log('📂 加载历史会话');
+      console.log('   会话ID:', sessionId);
+      console.log('   Coze会话ID:', loadedConversationId || '无');
+      console.log('   消息数量:', formattedMessages.length);
+      console.log('   已保存消息数:', savedMessageCountRef.current);
+      console.log('   ⚠️ 注意:', loadedConversationId ? '可以继续对话并保持上下文' : '继续对话将创建新的上下文');
+      
+      // 在移动设备上，加载会话后关闭侧边栏
+      if (window.innerWidth < 768) {
+        setShowSidebar(false);
       }
     } catch (error) {
       console.error('❌ 加载会话失败:', error);
@@ -227,9 +365,15 @@ export default function StudentLearningAssistant() {
 
   // 创建新会话
   const createNewSession = async () => {
+    // 防止在加载中或发送中时创建新会话
+    if (isLoadingHistory || isTyping || isSending) {
+      console.log('⚠️ 正在加载或发送中，跳过创建新会话');
+      return;
+    }
+    
     const welcomeMessage: Message = {
       id: `welcome-${Date.now()}`,
-      content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
+      content: '你好！我是你的智能学习助手 🤖\n\n我可以帮助你：\n\n• 解答学科问题\n• 讲解知识点\n• 辅导作业难题\n• 提供学习建议\n\n有什么可以帮助你的吗？',
       sender: 'assistant',
       timestamp: new Date(),
     };
@@ -237,9 +381,11 @@ export default function StudentLearningAssistant() {
     setMessages([welcomeMessage]);
     setCurrentSessionId(null);
     setCurrentConversationId(''); // 清空会话ID
+    savedMessageCountRef.current = 0; // 重置已保存消息数量
     
     console.log('🆕 创建新会话');
     console.log('   已清空conversation_id');
+    console.log('   已重置保存计数器');
     console.log('   下次发送消息时，/v3/chat 会自动创建新的会话');
     console.log('   我们会保存API返回的新conversation_id');
     
@@ -255,111 +401,67 @@ export default function StudentLearningAssistant() {
   };
 
   // 删除会话
-  const deleteSession = (sessionId: string) => {
-    const updatedSessions = chatSessions.filter(s => s.id !== sessionId);
-    setChatSessions(updatedSessions);
-    localStorage.setItem('learningAssistantChatHistory', JSON.stringify(updatedSessions));
-    
-    // 如果删除的是当前会话，创建新会话
-    if (sessionId === currentSessionId) {
-      createNewSession();
+  const deleteSession = async (sessionId: number | string) => {
+    try {
+      if (typeof sessionId === 'number') {
+        // 调用后端API删除
+        await deleteConversationApi(sessionId);
+        toast.success('会话已删除');
+      }
+      
+      // 从本地列表移除
+      const updatedSessions = chatSessions.filter(s => s.id !== sessionId);
+      setChatSessions(updatedSessions);
+      
+      // 如果删除的是当前会话，创建新会话
+      if (sessionId === currentSessionId) {
+        createNewSession();
+      }
+    } catch (error) {
+      console.error('删除会话失败:', error);
+      toast.error('删除会话失败');
     }
   };
 
-  // 创建模拟的历史对话数据
-  const createMockChatHistory = () => {
-    const mockSessions: ChatSession[] = [];
-    
-    // 模拟会话1：数学问题
-    const mathSession: ChatSession = {
-      id: 'mock-math',
-      title: '函数的基本性质',
-      lastMessage: '谢谢你的详细解答！',
-      timestamp: new Date(Date.now() - 86400000), // 昨天
-      messages: [
-        {
-          id: 'm1-1',
-          content: '你好，我想了解一下函数的基本性质有哪些？',
-          sender: 'user',
-          timestamp: new Date(Date.now() - 86400000 - 3600000)
-        },
-        {
-          id: 'm1-2',
-          content: '函数的基本性质主要包括：\n\n1. 定义域与值域：函数输入值的集合称为定义域，输出值的集合称为值域。\n2. 奇偶性：奇函数满足f(-x) = -f(x)，偶函数满足f(-x) = f(x)。\n3. 单调性：函数在某个区间内是递增或递减的。\n4. 周期性：函数值按照固定间隔重复的性质。\n5. 对称性：函数图像关于某条直线或点对称。\n\n需要我详细解释其中某一个性质吗？',
-          sender: 'assistant',
-          timestamp: new Date(Date.now() - 86400000 - 3500000)
-        },
-        {
-          id: 'm1-3',
-          content: '请详细解释一下单调性和如何判断函数的单调性。',
-          sender: 'user',
-          timestamp: new Date(Date.now() - 86400000 - 3400000)
-        },
-        {
-          id: 'm1-4',
-          content: '函数的单调性是指函数在定义域的某个区间内，当自变量x增大时，函数值f(x)是增大还是减小的性质。\n\n判断函数单调性的方法主要有：\n\n1. 定义法：对于区间内的任意x1 < x2，比较f(x1)和f(x2)的大小。\n2. 导数法：计算函数的导数f\'(x)，若f\'(x) > 0，则函数在该区间内单调递增；若f\'(x) < 0，则单调递减。\n3. 图像法：观察函数图像的上升或下降趋势。\n\n例如，对于函数f(x) = x²，它在区间(-∞, 0)上单调递减，在区间(0, +∞)上单调递增。',
-          sender: 'assistant',
-          timestamp: new Date(Date.now() - 86400000 - 3300000)
-        },
-        {
-          id: 'm1-5',
-          content: '谢谢你的详细解答！',
-          sender: 'user',
-          timestamp: new Date(Date.now() - 86400000 - 3200000)
-        }
-      ]
-    };
-    
-    // 模拟会话2：英语问题
-    const englishSession: ChatSession = {
-      id: 'mock-english',
-      title: '过去完成时的用法',
-      lastMessage: '我明白了，谢谢你！',
-      timestamp: new Date(Date.now() - 172800000), // 前天
-      messages: [
-        {
-          id: 'm2-1',
-          content: '请问过去完成时应该怎么使用？',
-          sender: 'user',
-          timestamp: new Date(Date.now() - 172800000 - 7200000)
-        },
-        {
-          id: 'm2-2',
-          content: '过去完成时表示在过去某一时间或动作之前已经发生或完成了的动作，它表示动作发生的时间是"过去的过去"。\n\n基本结构：had + 过去分词\n\n使用场景：\n1. 表示在过去某一时刻或动作以前完成了的动作，也可以说过去的时间关于过去的动作。\n2. 表示由过去的某一时刻开始，一直延续到过去另一时间的动作或状态。\n\n例如：\n- When I arrived at the station, the train had already left.\n- She had lived in London for five years before she moved to Paris.',
-          sender: 'assistant',
-          timestamp: new Date(Date.now() - 172800000 - 7100000)
-        },
-        {
-          id: 'm2-3',
-          content: '可以再举几个例子吗？',
-          sender: 'user',
-          timestamp: new Date(Date.now() - 172800000 - 7000000)
-        },
-        {
-          id: 'm2-4',
-          content: '当然可以！以下是一些过去完成时的例句：\n\n1. By the time I got home, my wife had cooked dinner.\n2. He had studied English for three years before he went to the US.\n3. They had already finished the project when I joined the team.\n4. She realized that she had forgotten her keys.\n5. Had you seen the movie before you read the book?\n\n这些例句都表示在过去的某个时间点之前已经完成的动作。',
-          sender: 'assistant',
-          timestamp: new Date(Date.now() - 172800000 - 6900000)
-        },
-        {
-          id: 'm2-5',
-          content: '我明白了，谢谢你！',
-          sender: 'user',
-          timestamp: new Date(Date.now() - 172800000 - 6800000)
-        }
-      ]
-    };
-    
-    mockSessions.push(mathSession, englishSession);
-    setChatSessions(mockSessions);
-    localStorage.setItem('learningAssistantChatHistory', JSON.stringify(mockSessions));
-  };
 
   // 发送消息（支持自动发送传入的问题）
-  const handleSendMessage = async (autoQuestion?: string) => {
+  const handleSendMessage = useCallback(async (autoQuestion?: string) => {
     const messageContent = autoQuestion || inputValue.trim();
+    const now = Date.now();
     
-    if (!messageContent || isTyping) return;
+    console.log('🎯 handleSendMessage 被调用', {
+      content: messageContent?.substring(0, 20),
+      timestamp: new Date().toLocaleTimeString(),
+      isAuto: !!autoQuestion
+    });
+    
+    // 🔒 多重防护机制
+    // 1. 内容检查
+    if (!messageContent) {
+      console.log('⚠️ 阻止发送：内容为空');
+      return;
+    }
+    
+    // 2. 状态检查
+    if (isTyping || isSending) {
+      console.log('⚠️ 阻止重复发送：正在处理中', { isTyping, isSending });
+      return;
+    }
+    
+    // 3. 时间戳防抖检查（500ms内不允许重复发送）
+    if (now - lastSendTimeRef.current < 500) {
+      console.log('⚠️ 阻止重复发送：发送过于频繁', {
+        timeSinceLastSend: now - lastSendTimeRef.current,
+        minInterval: 500
+      });
+      return;
+    }
+    
+    console.log('✅ 通过所有检查，开始发送消息');
+    
+    // 🔒 立即上锁并记录时间戳
+    lastSendTimeRef.current = now;
+    setIsSending(true);
     
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
@@ -382,7 +484,7 @@ export default function StudentLearningAssistant() {
     
     // 🔑 构建历史消息数组 - 用于上下文传递
     // 根据 Coze API 文档：只需传入 user 和 assistant 的消息，排除欢迎消息
-    const historyMessages = messages
+    const historyMessages = messagesRef.current
       .filter(msg => {
         // 过滤掉欢迎消息（id 为 'welcome' 或以 'welcome-' 开头）
         if (msg.id === 'welcome' || msg.id.startsWith('welcome-')) {
@@ -443,10 +545,19 @@ export default function StudentLearningAssistant() {
       setIsTyping(false);
       setStreamingText('');
       
+      // 💾 保存这一轮对话（用户消息 + AI回复）
+      await saveNewMessages([userMessage, assistantMessage]);
+      
+      // 🔓 释放锁
+      setIsSending(false);
+      
     } catch (error) {
       console.error('❌ 发送消息失败:', error);
       setIsTyping(false);
       setStreamingText('');
+      
+      // 🔓 释放锁
+      setIsSending(false);
       
       // 显示错误消息
       const errorMessage: Message = {
@@ -462,15 +573,18 @@ export default function StudentLearningAssistant() {
         description: error instanceof Error ? error.message : '未知错误',
       });
     }
-  };
+  }, [inputValue, isTyping, isSending, currentConversationId]);
 
-  // 处理键盘事件
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // 处理键盘事件（使用 onKeyDown，onKeyPress 已废弃）
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      // 只有在非发送状态时才允许发送
+      if (!isTyping && !isSending && inputValue.trim()) {
+        handleSendMessage();
+      }
     }
-  };
+  }, [isTyping, isSending, inputValue, handleSendMessage]);
 
   // 提取建议问题 - 从 API 返回的特殊标记中解析
   const extractSuggestedQuestions = (content: string): { cleanedContent: string; questions: string[] } => {
@@ -501,121 +615,168 @@ export default function StudentLearningAssistant() {
     return { cleanedContent: content, questions: [] };
   };
 
-  // 清理消息内容 - 移除 JSON 和工具调用信息，保留 Markdown 格式
-  const formatMessageContent = (content: string): string => {
-    let cleaned = content;
-    
-    // 0. 移除 JSON 格式内容和工具调用信息
-    cleaned = cleaned.replace(/\{(?:[^{}]|\{[^{}]*\})*\}/g, (match) => {
-      if (
-        match.includes('"plugin') || 
-        match.includes('"tool') || 
-        match.includes('"api_') || 
-        match.includes('"log_id') ||
-        match.includes('"code"') ||
-        match.includes('"msg"') ||
-        match.includes('"data"') ||
-        match.includes('"url"') ||
-        match.includes('"sitename"') ||
-        match.includes('"summary"') ||
-        match.includes('"logo_url"')
-      ) {
-        return '';
-      }
-      return match;
-    });
-    
-    // 移除残留的JSON片段
-    cleaned = cleaned.replace(/^[,\s]*["\{].*?["\}][,\s]*/gm, '');
-    cleaned = cleaned.replace(/^[,:"]\w+[,:"]/gm, '');
-    
-    // 移除工具调用标记
-    cleaned = cleaned.replace(/正在调用.*?工具.*?\n?/gi, '');
-    cleaned = cleaned.replace(/调用工具[:：].*?\n?/gi, '');
-    cleaned = cleaned.replace(/工具返回[:：].*?\n?/gi, '');
-    cleaned = cleaned.replace(/使用工具[:：].*?\n?/gi, '');
-    
-    // 移除思考过程标记
-    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '');
-    cleaned = cleaned.replace(/\[思考\][\s\S]*?\[\/思考\]/gi, '');
-    cleaned = cleaned.replace(/【思考】[\s\S]*?【\/思考】/gi, '');
-    cleaned = cleaned.replace(/```思考[\s\S]*?```/gi, '');
-    
-    // 移除思考过程文本
-    cleaned = cleaned.replace(/^让我.*?思考.*?\n?/gim, '');
-    cleaned = cleaned.replace(/^思考中.*?\n?/gim, '');
-    cleaned = cleaned.replace(/^分析中.*?\n?/gim, '');
-    cleaned = cleaned.replace(/^正在思考.*?\n?/gim, '');
-    
-    // 移除包含工具调用的JSON代码块
-    cleaned = cleaned.replace(/```json\s*\{[^}]*"tool"[^}]*\}[\s\S]*?```/gi, '');
-    cleaned = cleaned.replace(/```json\s*\{[^}]*"function"[^}]*\}[\s\S]*?```/gi, '');
-    
-    // 1. 简单去重 - 移除重复段落
-    const paragraphs = cleaned.split(/\n\n+/);
-    const seenContent = new Set<string>();
-    const uniqueParagraphs: string[] = [];
-    
-    for (const para of paragraphs) {
-      const trimmed = para.trim();
-      if (!trimmed) continue;
-      
-      // 过滤掉包含工具调用、思考或JSON关键词的段落
-      if (
-        trimmed.includes('tool_') ||
-        trimmed.includes('function_') ||
-        trimmed.includes('plugin_') ||
-        trimmed.includes('api_id') ||
-        trimmed.includes('log_id') ||
-        trimmed.includes('"url"') ||
-        trimmed.includes('sitename') ||
-        /^(思考|分析|推理)[:：]/i.test(trimmed)
-      ) {
-        continue;
-      }
-      
-      // 使用前150字符作为去重键
-      const key = trimmed.substring(0, 150);
-      if (seenContent.has(key)) {
-        continue;
-      }
-      
-      seenContent.add(key);
-      uniqueParagraphs.push(trimmed);
-    }
-    
-    cleaned = uniqueParagraphs.join('\n\n');
-    
-    // 2. 清理多余空行
-    cleaned = cleaned.replace(/\n{4,}/g, '\n\n\n');
-    cleaned = cleaned.trim();
-    
-    return cleaned;
-  };
+  // 注意：内容清理已在 API 层（learningAssistantApi.ts 的 cleanResponseText）完成
+  // 这里不需要重复清理，直接渲染即可
 
-  // Markdown 渲染组件
+  // Markdown 渲染组件（支持数学公式）
   const MarkdownRenderer = ({ content }: { content: string }) => {
     return (
-      <div className="markdown-content prose prose-sm prose-blue max-w-none dark:prose-invert
-        prose-headings:font-semibold
-        prose-h1:text-xl prose-h1:mb-3 prose-h1:mt-4
-        prose-h2:text-lg prose-h2:mb-2 prose-h2:mt-3
-        prose-h3:text-base prose-h3:mb-2 prose-h3:mt-3
-        prose-h4:text-sm prose-h4:mb-1 prose-h4:mt-2
-        prose-p:text-gray-700 prose-p:leading-relaxed prose-p:mb-2
-        prose-li:text-gray-700 prose-li:leading-relaxed
-        prose-ul:my-2 prose-ol:my-2
-        prose-strong:text-gray-900 prose-strong:font-semibold
-        prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-        prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-200 prose-pre:text-sm
-        dark:prose-p:text-gray-300
-        dark:prose-li:text-gray-300
-        dark:prose-strong:text-white
-        dark:prose-code:bg-gray-700
-        dark:prose-pre:bg-gray-800 dark:prose-pre:border-gray-700">
+      <div className="markdown-content prose prose-sm max-w-none dark:prose-invert">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw, rehypeSanitize]}
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
+          components={{
+            // 自定义标题渲染
+            h1: ({ children }) => (
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white mt-4 mb-3 pb-2 border-b border-gray-200 dark:border-gray-700">
+                {children}
+              </h1>
+            ),
+            h2: ({ children }) => (
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mt-4 mb-2">
+                {children}
+              </h2>
+            ),
+            h3: ({ children }) => (
+              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-3 mb-2">
+                {children}
+              </h3>
+            ),
+            h4: ({ children }) => (
+              <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mt-2 mb-1">
+                {children}
+              </h4>
+            ),
+            // 段落
+            p: ({ children }) => (
+              <p className="text-gray-700 dark:text-gray-300 leading-relaxed mb-3">
+                {children}
+              </p>
+            ),
+            // 无序列表
+            ul: ({ children }) => (
+              <ul className="list-disc list-inside space-y-1 my-3 text-gray-700 dark:text-gray-300">
+                {children}
+              </ul>
+            ),
+            // 有序列表
+            ol: ({ children }) => (
+              <ol className="list-decimal list-inside space-y-1 my-3 text-gray-700 dark:text-gray-300">
+                {children}
+              </ol>
+            ),
+            // 列表项
+            li: ({ children }) => (
+              <li className="leading-relaxed ml-2">
+                {children}
+              </li>
+            ),
+            // 粗体
+            strong: ({ children }) => (
+              <strong className="font-semibold text-gray-900 dark:text-white">
+                {children}
+              </strong>
+            ),
+            // 斜体
+            em: ({ children }) => (
+              <em className="italic text-gray-800 dark:text-gray-200">
+                {children}
+              </em>
+            ),
+            // 行内代码
+            code: ({ inline, children }: any) => {
+              if (inline) {
+                return (
+                  <code className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-sm font-mono border border-blue-200 dark:border-blue-800">
+                    {children}
+                  </code>
+                );
+              }
+              return <code className="font-mono text-sm">{children}</code>;
+            },
+            // 代码块
+            pre: ({ children }: any) => {
+              const [copied, setCopied] = useState(false);
+              
+              const handleCopy = () => {
+                const code = children?.props?.children;
+                if (code) {
+                  navigator.clipboard.writeText(code);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }
+              };
+              
+              return (
+                <div className="relative group my-4">
+                  <pre className="bg-gray-900 dark:bg-gray-950 text-gray-100 rounded-lg p-4 overflow-x-auto border border-gray-700">
+                    {children}
+                  </pre>
+                  <button
+                    onClick={handleCopy}
+                    className="absolute top-2 right-2 px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    {copied ? '已复制!' : '复制'}
+                  </button>
+                </div>
+              );
+            },
+            // 引用块
+            blockquote: ({ children }) => (
+              <blockquote className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-2 my-3 bg-blue-50 dark:bg-blue-900/20 text-gray-700 dark:text-gray-300 italic">
+                {children}
+              </blockquote>
+            ),
+            // 表格
+            table: ({ children }) => (
+              <div className="overflow-x-auto my-4">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 border border-gray-200 dark:border-gray-700">
+                  {children}
+                </table>
+              </div>
+            ),
+            thead: ({ children }) => (
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                {children}
+              </thead>
+            ),
+            tbody: ({ children }) => (
+              <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                {children}
+              </tbody>
+            ),
+            tr: ({ children }) => (
+              <tr className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                {children}
+              </tr>
+            ),
+            th: ({ children }) => (
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                {children}
+              </th>
+            ),
+            td: ({ children }) => (
+              <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                {children}
+              </td>
+            ),
+            // 链接
+            a: ({ href, children }: any) => (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+              >
+                {children}
+                <i className="fa-solid fa-external-link-alt ml-1 text-xs"></i>
+              </a>
+            ),
+            // 水平线
+            hr: () => (
+              <hr className="my-4 border-t border-gray-300 dark:border-gray-700" />
+            ),
+          }}
         >
           {content}
         </ReactMarkdown>
@@ -632,9 +793,9 @@ export default function StudentLearningAssistant() {
     : chatSessions;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
+    <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
       {/* 顶部导航栏 */}
-      <header className="sticky top-0 z-40 bg-white dark:bg-gray-800 shadow-sm">
+      <header className="flex-shrink-0 z-40 bg-white dark:bg-gray-800 shadow-sm">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-2">
@@ -710,13 +871,13 @@ export default function StudentLearningAssistant() {
         </div>
       </header>
       
-      {/* 主内容区 */}
-      <main className="flex-1 flex">
-        {/* 侧边栏 - 会话列表 */}
+      {/* 主内容区 - 固定高度，防止页面扩展 */}
+      <main className="flex-1 flex overflow-hidden">
+        {/* 侧边栏 - 会话列表（固定高度，独立滚动） */}
         <aside 
           className={`w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300 ${
             showSidebar ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-0'
-          } fixed lg:static h-[calc(100vh-4rem)] lg:h-auto z-30`}
+          } fixed lg:static h-[calc(100vh-4rem)] z-30`}
         >
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">会话列表</h2>
@@ -734,8 +895,12 @@ export default function StudentLearningAssistant() {
           
           <div className="p-4">
             <button
+              type="button"
               onClick={createNewSession}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center text-sm"
+              disabled={isLoadingHistory || isTyping || isSending}
+              className={`w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center text-sm ${
+                isLoadingHistory || isTyping || isSending ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               <i className="fa-solid fa-plus mr-2"></i>
               新会话
@@ -752,10 +917,14 @@ export default function StudentLearningAssistant() {
               filteredSessions.map(session => (
                 <div
                   key={session.id}
-                  onClick={() => loadChatSession(session.id)}
-                  className={`w-full text-left p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm border border-transparent hover:border-gray-200 dark:hover:border-gray-700 ${
+                  onClick={() => {
+                    if (!isLoadingHistory && !isTyping && !isSending) {
+                      loadChatSession(session.id);
+                    }
+                  }}
+                  className={`w-full text-left p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm border border-transparent hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer ${
                     currentSessionId === session.id ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800' : ''
-                  }`}
+                  } ${isLoadingHistory || isTyping || isSending ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                 >
                   <div className="flex justify-between items-start">
                     <p className="font-medium text-gray-800 dark:text-white truncate w-48">{session.title}</p>
@@ -764,11 +933,15 @@ export default function StudentLearningAssistant() {
                         {session.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteSession(session.id);
+                          if (!isLoadingHistory && !isTyping && !isSending) {
+                            deleteSession(session.id);
+                          }
                         }}
-                        className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                        disabled={isLoadingHistory || isTyping || isSending}
+                        className="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                       >
                         <i className="fa-solid fa-trash text-xs"></i>
                       </button>
@@ -793,9 +966,9 @@ export default function StudentLearningAssistant() {
           </div>
         </aside>
         
-        {/* 聊天区域 */}
-        <div className="flex-1 flex flex-col">
-          {/* 聊天内容 */}
+        {/* 聊天区域（固定高度，独立滚动） */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* 聊天内容（独立滚动区域） */}
           <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-gray-50 dark:bg-gray-900">
             <div className="max-w-3xl mx-auto space-y-6">
               {messages.map(message => (
@@ -820,24 +993,25 @@ export default function StudentLearningAssistant() {
                       {message.sender === 'user' ? (
                         <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
                       ) : (
-                        <MarkdownRenderer content={formatMessageContent(message.content)} />
+                        <MarkdownRenderer content={message.content} />
                       )}
                     </div>
                     
-                    {/* 建议问题按钮 */}
-                    {message.sender === 'assistant' && message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
+                    {/* 建议问题按钮 - 仅在空闲时显示 */}
+                    {!isTyping && !isSending && message.sender === 'assistant' && message.suggestedQuestions && message.suggestedQuestions.length > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {message.suggestedQuestions.map((question, index) => (
                           <button
                             key={index}
+                            type="button"
                             onClick={(e) => {
                               e.preventDefault();
-                              if (!isTyping) {
+                              e.stopPropagation();
+                              if (!isTyping && !isSending) {
                                 handleSendMessage(question);
                               }
                             }}
                             className="px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-sm border border-blue-200 dark:border-blue-800 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/40 dark:hover:to-indigo-900/40 transition-all hover:shadow-md hover:scale-105 flex items-center space-x-1"
-                            disabled={isTyping}
                           >
                             <i className="fa-solid fa-lightbulb text-yellow-500 text-xs"></i>
                             <span>{question}</span>
@@ -872,7 +1046,7 @@ export default function StudentLearningAssistant() {
                       <div className="inline-block rounded-2xl p-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-700 shadow-sm">
                         <div className="flex items-start">
                           <div className="flex-1">
-                            <MarkdownRenderer content={formatMessageContent(streamingText)} />
+                            <MarkdownRenderer content={streamingText} />
                           </div>
                           <span className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse flex-shrink-0"></span>
                         </div>
@@ -895,48 +1069,33 @@ export default function StudentLearningAssistant() {
             </div>
           </div>
           
-          {/* 输入区域 */}
-          <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+          {/* 输入区域（固定底部） */}
+          <div className="flex-shrink-0 p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
             <div className="max-w-3xl mx-auto">
-              {/* 会话状态指示器 */}
-              {currentConversationId && (
-                <div className="mb-3 flex items-center justify-center">
-                  <div className="inline-flex items-center px-3 py-1.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full">
-                    <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                    <span className="text-xs text-green-700 dark:text-green-300 font-medium">
-                      上下文已连接
-                    </span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(currentConversationId);
-                        toast.success('会话ID已复制');
-                      }}
-                      className="ml-2 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300"
-                      title={`会话ID: ${currentConversationId}`}
-                    >
-                      <i className="fa-solid fa-info-circle text-xs"></i>
-                    </button>
-                  </div>
-                </div>
-              )}
-              
               <div className="flex space-x-2">
                 <input
                   type="text"
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   placeholder="输入你的问题..."
-                  disabled={isTyping}
+                  disabled={isTyping || isSending}
                   className={`flex-1 px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white transition-colors ${
-                    isTyping ? 'opacity-70' : ''
+                    (isTyping || isSending) ? 'opacity-70' : ''
                   }`}
                 />
                 <button
-                  onClick={() => handleSendMessage()}
-                  disabled={!inputValue.trim() || isTyping}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!isTyping && !isSending && inputValue.trim()) {
+                      handleSendMessage();
+                    }
+                  }}
+                  disabled={!inputValue.trim() || isTyping || isSending}
                   className={`p-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-colors ${
-                    (!inputValue.trim() || isTyping) ? 'opacity-50 cursor-not-allowed' : ''
+                    (!inputValue.trim() || isTyping || isSending) ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
                 >
                   <i className="fa-solid fa-paper-plane"></i>
@@ -950,12 +1109,12 @@ export default function StudentLearningAssistant() {
         </div>
       </main>
       
-      {/* 页脚 */}
-      <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-4">
+      {/* 页脚（可选，聊天界面通常不需要） */}
+      {/* <footer className="flex-shrink-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 py-4">
         <div className="container mx-auto px-4 text-center text-gray-500 dark:text-gray-400 text-sm">
           <p>© 2025 智慧教辅系统 - 智能学习助手</p>
         </div>
-      </footer>
+      </footer> */}
       
       {/* 移动端遮罩层 - 当侧边栏打开时 */}
       {showSidebar && window.innerWidth < 1024 && (

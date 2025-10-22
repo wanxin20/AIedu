@@ -2,116 +2,50 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { getAssignmentDetail } from "@/services/assignmentApi";
+import { getSubmissionDetail } from "@/services/submissionApi";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
-// 定义学生作业状态接口
-interface StudentAssignment {
+// 定义作业信息接口
+interface Assignment {
   id: number;
-  studentId: number;
-  studentName: string;
-  assignmentId: number;
-  assignmentName: string;
-  status: 'pending' | 'submitted' | 'graded';
-  score: number | null;
-  submitTime: string | null;
-  gradeTime: string | null;
-  comment: string | null;
-  attachments?: {
-    id: string;
-    name: string;
-    url: string;
-    type: string;
-  }[];
+  title: string;
+  description: string | null;
+  subject: string;
+  teacherId: number;
+  teacherName: string;
+  classId: number;
+  className: string;
+  deadline: string;
+  totalScore: number;
+  attachments: any[];
+  status: string;
+  createdAt: string;
 }
 
-// 模拟获取学生作业数据
-const getStudentAssignment = (assignmentId: number, studentId: number): StudentAssignment | null => {
-  // 模拟数据
-  const assignments: StudentAssignment[] = [
-    {
-      id: 1,
-      studentId: 1,
-      studentName: "张三",
-      assignmentId: 1,
-      assignmentName: "高中数学函数基础练习",
-      status: 'graded',
-      score: 92,
-      submitTime: "2025-09-08 10:30:00",
-      gradeTime: "2025-09-08 14:15:00",
-      comment: "整体表现良好，知识点掌握扎实，但在一些细节问题上还需要加强。",
-      attachments: [
-        { 
-          id: "att-1-1", 
-          name: "作业提交-张三.jpg", 
-          url: "http://a.gptpro.cn/local_storage/opencoze/tos-cn-i-v4nquku3lp/e327feee-ad14-45d6-964a-5fdedb007e35.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20251011%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20251011T031920Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ea7353b12946736b2648c6243f7fc5f84dd8016f0452e16327ee31ef0cf4a333&x-wf-file_name=706c26f526c6c06d39eed532d1b1d163.jpg", 
-          type: "image" 
-        }
-      ]
-    },
-    {
-      id: 2,
-      studentId: 2,
-      studentName: "李四",
-      assignmentId: 1,
-      assignmentName: "高中数学函数基础练习",
-      status: 'graded',
-      score: 88,
-      submitTime: "2025-09-08 09:45:00",
-      gradeTime: "2025-09-08 14:20:00",
-      comment: "解题思路清晰，但部分计算有误，需要更加细心。",
-      attachments: [
-        { 
-          id: "att-2-1", 
-          name: "作业提交-李四.jpg", 
-          url: "http://a.gptpro.cn/local_storage/opencoze/tos-cn-i-v4nquku3lp/e327feee-ad14-45d6-964a-5fdedb007e35.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=minioadmin%2F20251011%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20251011T031920Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=ea7353b12946736b2648c6243f7fc5f84dd8016f0452e16327ee31ef0cf4a333&x-wf-file_name=706c26f526c6c06d39eed532d1b1d163.jpg", 
-          type: "image" 
-        }
-      ]
-    }
-  ];
-  
-  return assignments.find(a => a.assignmentId === assignmentId && a.studentId === studentId) || null;
-};
-
-// 模拟获取作业信息
-const getAssignmentInfo = (assignmentId: number) => {
-  const assignments = [
-    { 
-      id: 1, 
-      name: "高中数学函数基础练习", 
-      subject: "数学", 
-      assignedDate: "2025-09-01", 
-      dueDate: "2025-09-10", 
-      description: "本作业涵盖函数的基本概念、性质及应用，旨在帮助学生巩固函数相关知识，提高解题能力。",
-      attachments: [
-        { id: "att1", name: "函数基础知识点.pdf", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Study%20Material%20PDF&sign=bc8d80ff84a40d1073c6e6278aac6c81", type: "pdf" }
-      ]
-    },
-    { 
-      id: 2, 
-      name: "物理力学实验报告", 
-      subject: "物理", 
-      assignedDate: "2025-09-02", 
-      dueDate: "2025-09-12", 
-      description: "本次实验要求学生完成牛顿力学定律的验证实验，并提交详细的实验报告，包括实验目的、原理、步骤、数据记录与分析等内容。",
-      attachments: [
-        { id: "att2", name: "实验指导书.pdf", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Experiment%20Guide%20PDF&sign=b68e905d7770cdd530fc66118494ab8c", type: "pdf" }
-      ]
-    },
-    { 
-      id: 3, 
-      name: "英语阅读理解训练", 
-      subject: "英语", 
-      assignedDate: "2025-09-03", 
-      dueDate: "2025-09-15", 
-      description: "通过多篇不同题材的阅读理解文章，训练学生的阅读速度、理解能力和词汇量，提高英语综合能力。",
-      attachments: [
-        { id: "att3", name: "阅读材料集合.pdf", url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Materials%20PDF&sign=93010a07eb0bc912bb9446e2a9cf8149", type: "pdf" }
-      ]
-    }
-  ];
-  
-  return assignments.find(a => a.id === assignmentId) || assignments[0];
-};
+// 定义提交信息接口
+interface Submission {
+  id: number;
+  assignmentId: number;
+  assignmentTitle?: string;
+  studentId: number;
+  studentName?: string;
+  content: string | null;
+  attachments: any[];
+  score: number | null;
+  comment: string | null;
+  status: 'pending' | 'submitted' | 'graded';
+  submittedAt: string | null;
+  gradedAt: string | null;
+  gradedBy: number | null;
+  createdAt: string;
+}
 
 export default function AssignmentDetail() {
   const { user, logout } = useContext(AuthContext);
@@ -120,32 +54,88 @@ export default function AssignmentDetail() {
   const location = useLocation();
   
   // 从URL获取参数
-  const assignmentId = parseInt(params.id || '1', 10);
+  const assignmentId = parseInt(params.id || '0', 10);
   const searchParams = new URLSearchParams(location.search);
-  const studentId = parseInt(searchParams.get('studentId') || '1', 10);
+  const submissionId = parseInt(searchParams.get('submissionId') || '0', 10);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [assignmentInfo, setAssignmentInfo] = useState<any>(null);
-  const [studentAssignment, setStudentAssignment] = useState<StudentAssignment | null>(null);
+  const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [error, setError] = useState<string | null>(null);
   
   // 图片预览相关状态
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageScale, setImageScale] = useState(1);
   
-  // 模拟数据加载
+  // 加载数据
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const info = getAssignmentInfo(assignmentId);
-      setAssignmentInfo(info);
-      
-      const studentAssign = getStudentAssignment(assignmentId, studentId);
-      setStudentAssignment(studentAssign);
-      
-      setIsLoading(false);
-    }, 800);
-    
-    return () => clearTimeout(timer);
-  }, [assignmentId, studentId]);
+    const loadData = async () => {
+      if (!assignmentId || !submissionId) {
+        setError('缺少必要参数');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // 并行加载作业详情和提交详情
+        const [assignmentRes, submissionRes] = await Promise.all([
+          getAssignmentDetail(assignmentId),
+          getSubmissionDetail(submissionId)
+        ]);
+
+        if (assignmentRes.code === 200) {
+          setAssignment(assignmentRes.data);
+        } else {
+          throw new Error(assignmentRes.message || '获取作业信息失败');
+        }
+
+        if (submissionRes.code === 200) {
+          const submissionData = submissionRes.data;
+          
+          // 处理 attachments 字段 - 确保它是一个对象数组
+          let attachments: any[] = [];
+          if (submissionData.attachments) {
+            if (Array.isArray(submissionData.attachments)) {
+              attachments = submissionData.attachments.map((att: any, index: number) => {
+                if (typeof att === 'string') {
+                  // 如果是字符串（URL），转换为对象格式
+                  return {
+                    fileUrl: att,
+                    fileName: att.split('/').pop() || `附件${index + 1}`,
+                    mimeType: 'image/jpeg' // 默认假设是图片
+                  };
+                }
+                // 如果已经是对象，确保有必要的字段
+                return {
+                  fileUrl: att.fileUrl || att.url || att,
+                  fileName: att.fileName || att.name || att.split('/').pop() || `附件${index + 1}`,
+                  mimeType: att.mimeType || att.type || 'image/jpeg'
+                };
+              });
+            }
+          }
+          
+          setSubmission({
+            ...submissionData,
+            attachments: attachments
+          });
+        } else {
+          throw new Error(submissionRes.message || '获取提交信息失败');
+        }
+      } catch (err: any) {
+        console.error('加载数据失败:', err);
+        setError(err.message || '加载数据失败');
+        toast.error(err.message || '加载数据失败');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [assignmentId, submissionId]);
   
   // 权限检查
   useEffect(() => {
@@ -169,6 +159,41 @@ export default function AssignmentDetail() {
   // 处理返回列表
   const handleBackToList = () => {
     navigate(`/teacher/assignments/progress/${assignmentId}`);
+  };
+
+  // Markdown 渲染组件
+  const MarkdownRenderer = ({ content }: { content: string }) => {
+    return (
+      <div className="markdown-content prose prose-blue max-w-none dark:prose-invert
+        prose-headings:font-semibold
+        prose-h1:text-2xl prose-h1:mb-4 prose-h1:mt-6
+        prose-h2:text-xl prose-h2:mb-3 prose-h2:mt-5
+        prose-h3:text-lg prose-h3:mb-2 prose-h3:mt-4
+        prose-h4:text-base prose-h4:mb-2 prose-h4:mt-3
+        prose-p:text-gray-700 prose-p:leading-relaxed prose-p:mb-3
+        prose-li:text-gray-700 prose-li:leading-relaxed
+        prose-ul:my-3 prose-ol:my-3
+        prose-strong:text-gray-900 prose-strong:font-semibold
+        prose-code:text-sm prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+        prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-200
+        prose-table:border-collapse prose-table:w-full
+        prose-th:border prose-th:border-gray-300 prose-th:px-4 prose-th:py-2 prose-th:bg-gray-50
+        prose-td:border prose-td:border-gray-300 prose-td:px-4 prose-td:py-2
+        dark:prose-p:text-gray-300
+        dark:prose-li:text-gray-300
+        dark:prose-strong:text-white
+        dark:prose-code:bg-gray-800
+        dark:prose-pre:bg-gray-800 dark:prose-pre:border-gray-700
+        dark:prose-th:bg-gray-800 dark:prose-th:border-gray-700
+        dark:prose-td:border-gray-700">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeKatex]}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
   };
   
   // 打开图片预览
@@ -198,8 +223,8 @@ export default function AssignmentDetail() {
     setImageScale(1);
   };
   
-  // 如果找不到学生作业
-  if (!isLoading && !studentAssignment) {
+  // 如果有错误或找不到数据
+  if (!isLoading && (error || !assignment || !submission)) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
         {/* 顶部导航栏 */}
@@ -290,7 +315,7 @@ export default function AssignmentDetail() {
               </div>
               <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">未找到作业详情</h3>
               <p className="text-gray-600 dark:text-gray-400 mb-6 text-center max-w-md">
-                无法找到指定学生的作业信息，请检查参数是否正确。
+                {error || '无法找到指定的作业或提交信息，请检查参数是否正确。'}
               </p>
               <button
                 onClick={handleBackToList}
@@ -410,7 +435,7 @@ export default function AssignmentDetail() {
             <div className="w-12 h-12 border-t-2 border-b-2 border-green-500 rounded-full animate-spin mb-4"></div>
             <p className="text-gray-600 dark:text-gray-400">加载数据中...</p>
           </div>
-        ) : studentAssignment ? (
+        ) : assignment && submission ? (
           <div className="space-y-6">
             {/* 学生和作业基本信息卡片 */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
@@ -421,7 +446,7 @@ export default function AssignmentDetail() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-500 dark:text-gray-400">学生信息</p>
-                    <p className="text-base font-medium text-gray-900 dark:text-white">{studentAssignment.studentName}</p>
+                    <p className="text-base font-medium text-gray-900 dark:text-white">{submission.studentName || '未知学生'}</p>
                   </div>
                 </div>
                 <div className="flex items-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
@@ -430,7 +455,7 @@ export default function AssignmentDetail() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-500 dark:text-gray-400">作业名称</p>
-                    <p className="text-base font-medium text-gray-900 dark:text-white truncate">{studentAssignment.assignmentName}</p>
+                    <p className="text-base font-medium text-gray-900 dark:text-white truncate">{assignment.title}</p>
                   </div>
                 </div>
                 <div className="flex items-center p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
@@ -440,7 +465,7 @@ export default function AssignmentDetail() {
                   <div className="flex-1">
                     <p className="text-sm text-gray-500 dark:text-gray-400">得分</p>
                     <p className="text-base font-medium text-gray-900 dark:text-white">
-                      {studentAssignment.score !== null ? `${studentAssignment.score}分` : '未评分'}
+                      {submission.score !== null ? `${submission.score}分` : '未评分'}
                     </p>
                   </div>
                 </div>
@@ -450,27 +475,31 @@ export default function AssignmentDetail() {
               <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">提交时间</p>
-                  <p className="text-sm text-gray-900 dark:text-white">{studentAssignment.submitTime}</p>
+                  <p className="text-sm text-gray-900 dark:text-white">
+                    {submission.submittedAt ? new Date(submission.submittedAt).toLocaleString('zh-CN') : '未提交'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">批改时间</p>
-                  <p className="text-sm text-gray-900 dark:text-white">{studentAssignment.gradeTime}</p>
+                  <p className="text-sm text-gray-900 dark:text-white">
+                    {submission.gradedAt ? new Date(submission.gradedAt).toLocaleString('zh-CN') : '未批改'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">作业状态</p>
                   <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                    studentAssignment.status === 'graded' 
+                    submission.status === 'graded' 
                       ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-400' 
-                      : studentAssignment.status === 'submitted'
+                      : submission.status === 'submitted'
                         ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-400'
                         : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
                   }`}>
-                    {studentAssignment.status === 'graded' ? '已批改' : studentAssignment.status === 'submitted' ? '已提交' : '未提交'}
+                    {submission.status === 'graded' ? '已批改' : submission.status === 'submitted' ? '已提交' : '未提交'}
                   </span>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">学科</p>
-                  <p className="text-sm text-gray-900 dark:text-white">{assignmentInfo.subject}</p>
+                  <p className="text-sm text-gray-900 dark:text-white">{assignment.subject}</p>
                 </div>
               </div>
             </div>
@@ -478,14 +507,14 @@ export default function AssignmentDetail() {
             {/* 作业描述 */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">作业描述</h3>
-              <p className="text-gray-600 dark:text-gray-300">{assignmentInfo.description}</p>
+              <p className="text-gray-600 dark:text-gray-300">{assignment.description || '无描述'}</p>
               
               {/* 作业参考附件 */}
-              {(assignmentInfo.attachments && assignmentInfo.attachments.length > 0) && (
+              {(assignment.attachments && assignment.attachments.length > 0) && (
                 <div className="mt-6">
                   <h4 className="text-md font-semibold text-gray-800 dark:text-white mb-3">参考附件</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {assignmentInfo.attachments.map((attachment: any, index: number) => (
+                    {assignment.attachments.map((attachment: any, index: number) => (
                       <div 
                         key={index}
                         className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -508,21 +537,21 @@ export default function AssignmentDetail() {
             </div>
             
             {/* 学生提交的作业附件 */}
-            {(studentAssignment.attachments && studentAssignment.attachments.length > 0) ? (
+            {(submission.attachments && submission.attachments.length > 0) ? (
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">学生作业附件 ({studentAssignment.attachments.length})</h3>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">学生作业附件 ({submission.attachments.length})</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {studentAssignment.attachments.map((attachment) => (
+                  {submission.attachments.map((attachment, index) => (
                     <div 
-                      key={attachment.id}
+                      key={index}
                       className="relative group cursor-pointer overflow-hidden rounded-lg bg-gray-100 dark:bg-gray-700"
-                      onClick={() => attachment.type === "image" && handleImageClick(attachment.url)}
+                      onClick={() => attachment.fileUrl && handleImageClick(attachment.fileUrl)}
                     >
-                      {attachment.type === "image" ? (
+                      {attachment.mimeType?.startsWith('image/') ? (
                         <>
                           <img
-                            src={attachment.url}
-                            alt={attachment.name}
+                            src={attachment.fileUrl}
+                            alt={attachment.fileName}
                             className="w-full h-48 object-cover transition-transform duration-300 group-hover:scale-105" 
                           />
                           {/* 放大提示 */}
@@ -540,7 +569,7 @@ export default function AssignmentDetail() {
                         </div>
                       )}
                       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-                        <p className="text-white font-medium truncate">{attachment.name}</p>
+                        <p className="text-white font-medium truncate">{attachment.fileName}</p>
                       </div>
                     </div>
                   ))}
@@ -557,11 +586,14 @@ export default function AssignmentDetail() {
             )}
             
             {/* 教师评语 */}
-            {studentAssignment.comment && (
+            {submission.comment && (
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">教师评语</h3>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3 flex items-center">
+                  <i className="fa-solid fa-comment-dots mr-2 text-blue-600 dark:text-blue-400"></i>
+                  教师评语
+                </h3>
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-lg border border-blue-100 dark:border-blue-800/50">
-                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{studentAssignment.comment}</p>
+                  <MarkdownRenderer content={submission.comment} />
                 </div>
               </div>
             )}

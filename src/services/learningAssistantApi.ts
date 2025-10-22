@@ -456,21 +456,12 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
   cleaned = cleaned.replace(/```json\s*\{[^}]*"tool"[^}]*\}[\s\S]*?```/gi, '');
   cleaned = cleaned.replace(/```json\s*\{[^}]*"function"[^}]*\}[\s\S]*?```/gi, '');
   
-  // 5. 保护重要的换行结构
-  // 5.1 保护列表项的换行（- 开头的行）
-  cleaned = cleaned.replace(/([^\n])(- [^\n]+)/g, '$1\n$2');
-  
-  // 5.2 保护标题后的冒号换行
-  cleaned = cleaned.replace(/([：:])\s*([^\n])/g, '$1\n$2');
-  
-  // 5.3 保护段落标识（如"第X段"、"第X自然段"等）
-  cleaned = cleaned.replace(/([。！？\n])\s*(第[一二三四五六七八九十\d]+[段落自然节章])/g, '$1\n\n$2');
-  
-  // 5.4 清理多余的空白和换行
+  // 5. 最终清理
+  // 清理多余的空白和换行
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   cleaned = cleaned.trim();
   
-  // 🔑 5.5 检测并移除大段重复文本（在段落分割之前）
+  // 6. 检测并移除大段重复文本（在段落分割之前）
   // 这个方法可以检测到连续重复的大段文本，即使没有段落分隔符
   const detectAndRemoveLargeRepetition = (text: string): string => {
     const length = text.length;
@@ -512,7 +503,7 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
   // 应用大段重复检测
   cleaned = detectAndRemoveLargeRepetition(cleaned);
   
-  // 6. 移除重复的段落和句子（增强版去重 + 相似度检测）
+  // 7. 移除重复的段落和句子（增强版去重 + 相似度检测）
   // 先按段落分割（使用双换行）
   const paragraphs = cleaned.split(/\n\n+/);
   const uniqueParagraphs: string[] = [];
@@ -595,7 +586,7 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
   // 🔑 用双换行连接段落，保留段落内的单换行
   cleaned = uniqueParagraphs.join('\n\n');
   
-  // 7. 再次检测并移除相邻重复的大块文本（例如整个章节重复）
+  // 8. 再次检测并移除相邻重复的大块文本（例如整个章节重复）
   // 按行分割检查
   const lines = cleaned.split('\n');
   const uniqueLines: string[] = [];
@@ -621,7 +612,7 @@ function cleanResponseText(text: string): { cleanedContent: string; suggestedQue
   
   cleaned = uniqueLines.join('\n');
   
-  // 8. 最后清理
+  // 9. 最后清理
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   cleaned = cleaned.trim();
   

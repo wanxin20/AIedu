@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import PasswordRules from './PasswordRules';
+import { register as registerApi } from '@/services/authApi';
 
 export default function StudentRegisterStep2() {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export default function StudentRegisterStep2() {
   };
 
   // 处理注册
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!name.trim()) {
       toast.error('请输入姓名');
       return;
@@ -50,17 +51,25 @@ export default function StudentRegisterStep2() {
 
     setIsLoading(true);
 
-    // 模拟注册API请求
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // 调用真实的注册 API
+      const result = await registerApi({
+        phone: step1Data.phone,
+        password,
+        name,
+        role: 'student',
+        classId: step1Data.classId
+      });
       
-      // 调用注册函数
+      const userData = result.data.user;
+      
+      // 调用登录函数，更新认证状态
       register(
-        'student', 
-        step1Data.phone, 
-        name, 
-        password, 
-        step1Data.classId
+        userData.role,
+        userData.phone,
+        userData.name,
+        password,
+        userData.classId
       );
       
       // 清除localStorage中的注册数据
@@ -70,7 +79,12 @@ export default function StudentRegisterStep2() {
       
       // 导航到学生仪表盘
       navigate('/student/dashboard');
-    }, 1500);
+    } catch (error: any) {
+      console.error('注册失败:', error);
+      toast.error(error.message || '注册失败，请稍后重试');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

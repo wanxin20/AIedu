@@ -3,6 +3,7 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
 import PasswordRules from './PasswordRules';
+import { register as registerApi } from '@/services/authApi';
 
 export default function TeacherRegisterStep2() {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ export default function TeacherRegisterStep2() {
   };
 
   // 处理注册
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!name.trim()) {
       toast.error('请输入姓名');
       return;
@@ -51,18 +52,27 @@ export default function TeacherRegisterStep2() {
 
     setIsLoading(true);
 
-    // 模拟注册API请求
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // 调用真实的注册 API
+      const result = await registerApi({
+        phone: step1Data.phone,
+        password,
+        name,
+        role: 'teacher',
+        subject: step1Data.subjectName,
+        classId: step1Data.classId
+      });
       
-      // 调用注册函数
+      const userData = result.data.user;
+      
+      // 调用登录函数，更新认证状态
       register(
-        'teacher', 
-        step1Data.phone, 
-        name, 
-        password, 
-        step1Data.classId, 
-        step1Data.subjectName
+        userData.role,
+        userData.phone,
+        userData.name,
+        password,
+        userData.classId,
+        userData.subject
       );
       
       // 清除localStorage中的注册数据
@@ -72,7 +82,12 @@ export default function TeacherRegisterStep2() {
       
       // 导航到教师仪表盘
       navigate('/teacher/dashboard');
-    }, 1500);
+    } catch (error: any) {
+      console.error('注册失败:', error);
+      toast.error(error.message || '注册失败，请稍后重试');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -101,8 +116,8 @@ export default function TeacherRegisterStep2() {
               <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
                   <p><span className="font-medium">手机号：</span>{step1Data.phone}</p>
-                  <p><span className="font-medium">班级：</span>{step1Data.className}</p>
                   <p><span className="font-medium">学科：</span>{step1Data.subjectName}</p>
+                  <p><span className="font-medium">班级：</span>{step1Data.className}</p>
                 </div>
               </div>
             )}

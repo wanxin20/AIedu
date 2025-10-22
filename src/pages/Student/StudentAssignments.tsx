@@ -2,102 +2,20 @@ import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { getAssignments } from "@/services/assignmentApi";
+import { getMySubmissions } from "@/services/submissionApi";
 
 interface Assignment {
     id: number;
-    name: string;
+    title: string;
     subject: string;
-    assignedDate: string;
-    dueDate: string;
-    description: string;
+    created_at: string;
+    deadline: string;
+    description?: string;
     status: "pending" | "submitted" | "graded";
     score?: number;
-    attachments?: {
-        id: string;
-        name: string;
-        url: string;
-        type: string;
-    }[];
+    submission_id?: number;
 }
-
-const getAssignmentsData = (): Assignment[] => {
-    const currentDate = new Date();
-    const tomorrow = new Date(currentDate);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const dayAfterTomorrow = new Date(currentDate);
-    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-
-    return [{
-        id: 1,
-        name: "高中数学函数基础练习",
-        subject: "数学",
-        assignedDate: "2025-09-01",
-        dueDate: "2025-09-10",
-        description: "本作业涵盖函数的基本概念、性质及应用，旨在帮助学生巩固函数相关知识，提高解题能力。请完成所有习题，并提交详细的解题过程。",
-        status: "pending",
-
-        attachments: [{
-            id: "att1",
-            name: "函数基础知识点.pdf",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Study%20Material%20PDF&sign=bc8d80ff84a40d1073c6e6278aac6c81",
-            type: "pdf"
-        }]
-    }, {
-        id: 2,
-        name: "物理力学实验报告",
-        subject: "物理",
-        assignedDate: "2025-09-02",
-        dueDate: "2025-09-12",
-        description: "本次实验要求学生完成牛顿力学定律的验证实验，并提交详细的实验报告，包括实验目的、原理、步骤、数据记录与分析等内容。请按照实验指导书的要求规范撰写。",
-        status: "pending",
-
-        attachments: [{
-            id: "att2",
-            name: "实验指导书.pdf",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Experiment%20Guide%20PDF&sign=b68e905d7770cdd530fc66118494ab8c",
-            type: "pdf"
-        }]
-    }, {
-        id: 3,
-        name: "英语阅读理解训练",
-        subject: "英语",
-        assignedDate: "2025-09-03",
-        dueDate: "2025-09-15",
-        description: "通过多篇不同题材的阅读理解文章，训练学生的阅读速度、理解能力和词汇量，提高英语综合能力。请仔细阅读文章，回答所有问题，并解释你的选择理由。",
-        status: "submitted",
-
-        attachments: [{
-            id: "att3",
-            name: "阅读材料集合.pdf",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Materials%20PDF&sign=93010a07eb0bc912bb9446e2a9cf8149",
-            type: "pdf"
-        }]
-    }, {
-        id: 4,
-        name: "化学元素周期表练习",
-        subject: "化学",
-        assignedDate: "2025-09-05",
-        dueDate: "2025-09-18",
-        description: "本作业要求学生掌握元素周期表的结构、元素性质的周期性变化规律，并能够应用这些知识解决相关问题。",
-        status: "graded",
-        score: 85,
-
-        attachments: [{
-            id: "att4",
-            name: "元素周期表高清版.jpg",
-            url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Periodic%20Table%20of%20Elements&sign=bc1caba46953572608abb21569bc7152",
-            type: "image"
-        }]
-    }, {
-        id: 5,
-        name: "历史事件时间轴制作",
-        subject: "历史",
-        assignedDate: "2025-09-06",
-        dueDate: "2025-09-20",
-        description: "学生需要收集指定历史时期的重要事件资料，制作详细的时间轴，梳理历史发展脉络，培养历史思维能力。",
-        status: "pending"
-    }];
-};
 
 export default function StudentAssignments() {
     const {
@@ -110,16 +28,81 @@ export default function StudentAssignments() {
     const [assignments, setAssignments] = useState<Assignment[]>([]);
     const [filteredAssignments, setFilteredAssignments] = useState<Assignment[]>([]);
     const [searchTerm, setSearchTerm] = useState("");
+    const [error, setError] = useState<string | null>(null);
+
+    // 加载作业列表和提交状态
+    const loadAssignments = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+
+            // 1. 获取所有作业
+            const assignmentsResponse = await getAssignments({ 
+                page: 1, 
+                pageSize: 100,
+                status: 'published' // 只获取已发布的作业
+            });
+            console.log('作业列表数据:', assignmentsResponse);
+
+            // 2. 获取我的提交记录
+            const submissionsResponse = await getMySubmissions();
+            console.log('提交记录数据:', submissionsResponse);
+
+            const submissionsMap = new Map();
+            (submissionsResponse.data || []).forEach((sub: any) => {
+                submissionsMap.set(sub.assignmentId, sub);
+            });
+
+            // 3. 合并数据
+            const mergedData: Assignment[] = (assignmentsResponse.data.items || []).map((assignment: any) => {
+                const submission = submissionsMap.get(assignment.id);
+                let status: "pending" | "submitted" | "graded" = 'pending';
+                if (submission) {
+                    status = submission.score != null ? 'graded' : 'submitted';
+                }
+                return {
+                    id: assignment.id,
+                    title: assignment.title,
+                    subject: assignment.subject,
+                    created_at: assignment.createdAt,
+                    deadline: assignment.deadline,
+                    description: assignment.description,
+                    status: status,
+                    score: submission?.score,
+                    submission_id: submission?.id
+                };
+            });
+
+            setAssignments(mergedData);
+            setFilteredAssignments(mergedData);
+        } catch (err: any) {
+            console.error('加载作业列表失败:', err);
+            const errorMessage = err.message || '加载数据失败';
+            setError(errorMessage);
+            toast.error('加载作业失败: ' + (err.message || '未知错误'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            const data = getAssignmentsData();
-            setAssignments(data);
-            setFilteredAssignments(data);
-            setIsLoading(false);
-        }, 800);
+        loadAssignments();
+    }, []);
 
-        return () => clearTimeout(timer);
+    // 监听页面可见性，当页面重新可见时刷新数据
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                console.log('页面重新可见，刷新作业数据');
+                loadAssignments();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     useEffect(() => {
@@ -135,7 +118,7 @@ export default function StudentAssignments() {
         }
 
         const term = searchTerm.toLowerCase();
-        const results = assignments.filter(assignment => assignment.name.toLowerCase().includes(term));
+        const results = assignments.filter(assignment => assignment.title.toLowerCase().includes(term));
         setFilteredAssignments(results);
     }, [searchTerm, assignments]);
 
@@ -168,19 +151,19 @@ export default function StudentAssignments() {
         }
     };
 
-    const isAssignmentExpired = (dueDate: string) => {
+    const isAssignmentExpired = (deadline: string) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        return new Date(dueDate) < today;
+        return new Date(deadline) < today;
     };
 
-    const getDueDateStatus = (dueDate: string) => {
-        if (isAssignmentExpired(dueDate)) {
+    const getDueDateStatus = (deadline: string) => {
+        if (isAssignmentExpired(deadline)) {
             return <span className="text-red-600 dark:text-red-400 font-medium">已过期</span>;
         }
 
         const today = new Date();
-        const due = new Date(dueDate);
+        const due = new Date(deadline);
         const daysLeft = Math.ceil((due.getTime() - today.getTime()) / (1000 * 3600 * 24));
 
         if (daysLeft <= 3) {
@@ -325,7 +308,7 @@ export default function StudentAssignments() {
                                         <div className="text-sm text-gray-900 dark:text-gray-100">{index + 1}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap max-w-xs">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{assignment.name}</div>
+                                        <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{assignment.title}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span
@@ -334,12 +317,14 @@ export default function StudentAssignments() {
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-300">{assignment.assignedDate}</div>
+                                        <div className="text-sm text-gray-600 dark:text-gray-300">
+                                            {assignment.created_at ? new Date(assignment.created_at).toLocaleDateString('zh-CN') : '-'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm">
-                                            {assignment.dueDate}
-                                            <span className="ml-1">({getDueDateStatus(assignment.dueDate)})</span>
+                                            {assignment.deadline ? new Date(assignment.deadline).toLocaleDateString('zh-CN') : '-'}
+                                            <span className="ml-1">({getDueDateStatus(assignment.deadline)})</span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -351,9 +336,9 @@ export default function StudentAssignments() {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                         {assignment.status === "pending" && <button
                                             onClick={() => handleSubmitAssignment(assignment.id)}
-                                            disabled={isAssignmentExpired(assignment.dueDate)}
-                                            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${isAssignmentExpired(assignment.dueDate) ? "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700 text-white"}`}>
-                                            {isAssignmentExpired(assignment.dueDate) ? "已过期" : "提交作业"}
+                                            disabled={isAssignmentExpired(assignment.deadline)}
+                                            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${isAssignmentExpired(assignment.deadline) ? "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700 text-white"}`}>
+                                            {isAssignmentExpired(assignment.deadline) ? "已过期" : "提交作业"}
                                         </button>}
                                         {assignment.status === "submitted" && <span className="text-gray-500 dark:text-gray-400">等待批改</span>}
                                         {assignment.status === "graded" && <button

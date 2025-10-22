@@ -1,111 +1,10 @@
 import { useContext, useState, useEffect } from 'react';
-import { useNavigate, useParams, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { AuthContext } from '@/contexts/authContext';
 import { toast } from 'sonner';
-
-// 定义作业接口
-interface Assignment {
-  id: number;
-  name: string;
-  subject: string;
-  assignedDate: string;
-  dueDate: string;
-  description: string;
-  status: 'pending' | 'submitted' | 'graded';
-  score?: number;
-  attachments?: {
-    id: string;
-    name: string;
-    url: string;
-    type: string;
-  }[];
-}
-
-// 模拟作业数据
-const getAssignmentById = (id: number): Assignment => {
-  const assignments: Assignment[] = [
-    {
-      id: 1,
-      name: "高中数学函数基础练习",
-      subject: "数学",
-      assignedDate: "2025-09-01",
-      dueDate: "2025-09-10",
-      description: "本作业涵盖函数的基本概念、性质及应用，旨在帮助学生巩固函数相关知识，提高解题能力。请完成所有习题，并提交详细的解题过程。",
-      status: 'pending',
-      attachments: [
-        {
-          id: "att1",
-          name: "函数基础知识点.pdf",
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Math%20Function%20Study%20Material%20PDF&sign=bc8d80ff84a40d1073c6e6278aac6c81",
-          type: "pdf"
-        }
-      ]
-    },
-    {
-      id: 2,
-      name: "物理力学实验报告",
-      subject: "物理",
-      assignedDate: "2025-09-02",
-      dueDate: "2025-09-12",
-      description: "本次实验要求学生完成牛顿力学定律的验证实验，并提交详细的实验报告，包括实验目的、原理、步骤、数据记录与分析等内容。请按照实验指导书的要求规范撰写。",
-      status: 'pending',
-      attachments: [
-        {
-          id: "att2",
-          name: "实验指导书.pdf",
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Physics%20Experiment%20Guide%20PDF&sign=b68e905d7770cdd530fc66118494ab8c",
-          type: "pdf"
-        }
-      ]
-    },
-    {
-      id: 3,
-      name: "英语阅读理解训练",
-      subject: "英语",
-      assignedDate: "2025-09-03",
-      dueDate: "2025-09-15",
-      description: "通过多篇不同题材的阅读理解文章，训练学生的阅读速度、理解能力和词汇量，提高英语综合能力。请仔细阅读文章，回答所有问题，并解释你的选择理由。",
-      status: 'submitted',
-      attachments: [
-        {
-          id: "att3",
-          name: "阅读材料集合.pdf",
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=English%20Reading%20Materials%20PDF&sign=93010a07eb0bc912bb9446e2a9cf8149",
-          type: "pdf"
-        }
-      ]
-    },
-    {
-      id: 4,
-      name: "化学元素周期表练习",
-      subject: "化学",
-      assignedDate: "2025-09-05",
-      dueDate: "2025-09-18",
-      description: "本作业要求学生掌握元素周期表的结构、元素性质的周期性变化规律，并能够应用这些知识解决相关问题。",
-      status: 'graded',
-      score: 85,
-      attachments: [
-        {
-          id: "att4",
-          name: "元素周期表高清版.jpg",
-          url: "https://space.coze.cn/api/coze_space/gen_image?image_size=landscape_16_9&prompt=Periodic%20Table%20of%20Elements&sign=bc1caba46953572608abb21569bc7152",
-          type: "image"
-        }
-      ]
-    },
-    {
-      id: 5,
-      name: "历史事件时间轴制作",
-      subject: "历史",
-      assignedDate: "2025-09-06",
-      dueDate: "2025-09-20",
-      description: "学生需要收集指定历史时期的重要事件资料，制作详细的时间轴，梳理历史发展脉络，培养历史思维能力。",
-      status: 'pending'
-    }
-  ];
-  
-  return assignments.find(a => a.id === id) || assignments[0];
-};
+import { getAssignmentDetail } from '@/services/assignmentApi';
+import { getSubmissionByAssignment, submitAssignment as submitAssignmentApi } from '@/services/submissionApi';
+import { uploadMultipleFiles } from '@/services/uploadApi';
 
 // 定义上传文件接口
 interface UploadedFile {
@@ -118,45 +17,72 @@ export default function StudentAssignmentSubmit() {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
   const params = useParams();
-  const location = useLocation();
   
-  // 获取作业ID，确保从params中获取的id能被正确解析为数字类型
-  const assignmentId = parseInt(String(params.id), 10) || 1;
+  // 获取作业ID
+  const assignmentId = parseInt(String(params.id), 10);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [assignment, setAssignment] = useState<Assignment | null>(null);
+  const [assignment, setAssignment] = useState<any>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [showAttachmentPreview, setShowAttachmentPreview] = useState(false);
-  const [selectedAttachment, setSelectedAttachment] = useState<any>(null);
+  const [existingSubmission, setExistingSubmission] = useState<any>(null);
   
-  // 模拟数据加载
+  // 加载作业数据和提交记录
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const assignmentData = getAssignmentById(assignmentId);
-      setAssignment(assignmentData);
-      
-      // 检查是否有保存的草稿
-      const savedDraft = localStorage.getItem(`assignment_draft_${assignmentId}_${user?.phone}`);
-      if (savedDraft) {
-        try {
-          const draft = JSON.parse(savedDraft);
-          // 恢复草稿文件预览（注意：实际应用中需要处理文件恢复）
-          if (draft.files && draft.files.length > 0) {
-            // 由于无法直接从base64恢复File对象，这里仅做提示
-            toast.info('已恢复上次保存的草稿');
-          }
-        } catch (error) {
-          console.error('Failed to load draft:', error);
-        }
+    const loadData = async () => {
+      if (!assignmentId || isNaN(assignmentId)) {
+        toast.error('无效的作业ID');
+        navigate('/student/assignments');
+        return;
       }
-      
-      setIsLoading(false);
-    }, 800);
+
+      try {
+        setIsLoading(true);
+        
+        // 获取作业详情
+        const assignmentResponse = await getAssignmentDetail(assignmentId);
+        const assignmentData = assignmentResponse.data;
+        
+        // 解析 attachments 字段（如果是 JSON 字符串）
+        if (assignmentData.attachments && typeof assignmentData.attachments === 'string') {
+          try {
+            assignmentData.attachments = JSON.parse(assignmentData.attachments);
+          } catch (e) {
+            console.error('解析附件数据失败:', e);
+            assignmentData.attachments = [];
+          }
+        }
+        
+        setAssignment(assignmentData);
+        
+        // 检查是否已有提交记录
+        try {
+          const submissionResponse = await getSubmissionByAssignment(assignmentId);
+          if (submissionResponse.data) {
+            setExistingSubmission(submissionResponse.data);
+            // 如果已提交且已批改，跳转到详情页
+            if (submissionResponse.data.status === 'graded') {
+              toast.info('此作业已批改，跳转到详情页');
+              navigate(`/student/assignments/${assignmentId}`);
+              return;
+            }
+          }
+        } catch (error: any) {
+          // 如果没有提交记录，忽略错误
+          console.log('暂无提交记录');
+        }
+        
+      } catch (error: any) {
+        console.error('加载作业数据失败:', error);
+        toast.error(error.message || '加载作业失败');
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    return () => clearTimeout(timer);
-  }, [assignmentId, user?.phone]);
+    loadData();
+  }, [assignmentId, navigate]);
   
   // 权限检查
   useEffect(() => {
@@ -209,72 +135,53 @@ export default function StudentAssignmentSubmit() {
     toast.success('文件已移除');
   };
   
-  // 处理查看附件
-  const handleViewAttachment = (attachment: any) => {
-    setSelectedAttachment(attachment);
-    setShowAttachmentPreview(true);
-  };
-  
-  // 关闭附件预览
-  const handleCloseAttachmentPreview = () => {
-    setShowAttachmentPreview(false);
-    setSelectedAttachment(null);
-  };
-  
-  // 处理保存草稿
+  // 处理保存草稿（暂不实现草稿功能，仅给出提示）
   const handleSaveDraft = () => {
-    if (uploadedFiles.length === 0) {
-      toast.error('请至少上传一个文件');
-      return;
-    }
-    
-    setIsSavingDraft(true);
-    
-    setTimeout(() => {
-      // 在实际应用中，这里应该保存到服务器或使用更复杂的本地存储方案
-      // 由于浏览器安全限制，我们不能直接保存File对象到localStorage
-      // 这里只保存基本信息作为示例
-      const draftData = {
-        assignmentId,
-        savedAt: new Date().toISOString(),
-        files: uploadedFiles.map(file => ({
-          id: file.id,
-          name: file.file.name,
-          type: file.file.type,
-          size: file.file.size
-          // 注意：在实际应用中，你可能需要考虑如何处理文件内容
-        }))
-      };
-      
-      localStorage.setItem(`assignment_draft_${assignmentId}_${user?.phone}`, JSON.stringify(draftData));
-      setIsSavingDraft(false);
-      toast.success('作业草稿已保存');
-    }, 800);
+    toast.info('草稿功能暂未实现，请直接提交作业');
   };
   
-   // 处理提交作业
-  const handleSubmitAssignment = () => {
+  // 处理提交作业
+  const handleSubmitAssignment = async () => {
     if (uploadedFiles.length === 0) {
       toast.error('请至少上传一个文件');
       return;
     }
     
-    if (window.confirm('确定要提交作业吗？提交后将无法修改。')) {
-      setIsSubmitting(true);
+    if (!window.confirm('确定要提交作业吗？提交后将无法修改。')) {
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
+    try {
+      // 1. 先上传所有文件
+      toast.info('正在上传文件...');
+      const files = uploadedFiles.map(f => f.file);
+      const uploadResponse = await uploadMultipleFiles(files, 'assignment');
       
+      // 2. 获取上传后的文件URL列表
+      const fileUrls = uploadResponse.data.files.map((file: any) => file.url);
+      
+      // 3. 提交作业
+      toast.info('正在提交作业...');
+      await submitAssignmentApi({
+        assignmentId,
+        content: '学生提交的作业', // 可以添加一个文本输入框让学生填写说明
+        attachments: fileUrls
+      });
+      
+      toast.success('作业提交成功！');
+      
+      // 延迟导航，给用户时间看到成功提示
       setTimeout(() => {
-        // 在实际应用中，这里应该提交到服务器
-        // 移除保存的草稿
-        localStorage.removeItem(`assignment_draft_${assignmentId}_${user?.phone}`);
-        
-        setIsSubmitting(false);
-        toast.success('作业提交成功！');
-        
-        // 延迟导航，给用户时间看到成功提示
-        setTimeout(() => {
-          navigate('/student/assignments');
-        }, 1500);
+        navigate('/student/assignments');
       }, 1500);
+      
+    } catch (error: any) {
+      console.error('提交作业失败:', error);
+      toast.error(error.message || '提交失败，请重试');
+    } finally {
+      setIsSubmitting(false);
     }
   };
   
@@ -300,70 +207,6 @@ export default function StudentAssignmentSubmit() {
     }
     
     return <span className="text-green-600 dark:text-green-400 font-medium">剩余{daysLeft}天</span>;
-  };
-  
-  // 渲染附件预览
-  const renderAttachmentPreview = () => {
-    if (!selectedAttachment) return null;
-    
-    const { name, url, type } = selectedAttachment;
-    
-    return (
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{name}</h3>
-            <button 
-              onClick={handleCloseAttachmentPreview}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              <i className="fa-solid fa-times text-xl"></i>
-            </button>
-          </div>
-          <div className="flex-1 overflow-auto p-4">
-            <div className="flex justify-center items-center min-h-[60vh]">
-              {type === 'pdf' ? (
-                <div className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                  <i className="fa-solid fa-file-pdf text-red-500 text-6xl mb-4"></i>
-                  <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{name}</p>
-                  <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">PDF文件预览</p>
-                  <a 
-                    href={url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-download mr-2"></i>
-                    <span>下载文件</span>
-                  </a>
-                </div>
-              ) : type === 'image' ? (
-                <img
-                  src={url}
-                  alt={name}
-                  className="max-h-full max-w-full object-contain rounded-lg shadow-lg"
-                />
-              ) : (
-                <div className="bg-gray-100 dark:bg-gray-700 p-8 rounded-lg max-w-full max-h-[60vh] flex flex-col items-center justify-center">
-                  <i className="fa-solid fa-file-video text-blue-500 text-6xl mb-4"></i>
-                  <p className="text-center text-gray-700 dark:text-gray-300 mb-2">{name}</p>
-                  <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">视频文件预览</p>
-                  <a 
-                    href={url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center"
-                  >
-                    <i className="fa-solid fa-download mr-2"></i>
-                    <span>下载文件</span>
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   };
   
   return (
@@ -446,17 +289,17 @@ export default function StudentAssignmentSubmit() {
             {/* 作业信息卡片 */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
               <div className="mb-6">
-                <h3 className="text-xl font-semibold text-gray-800 dark:text-white">{assignment.name}</h3>
+                <h3 className="text-xl font-semibold text-gray-800 dark:text-white">{assignment.title}</h3>
                 <div className="flex items-center mt-2 space-x-4">
                   <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium">
                     {assignment.subject}
                   </span>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    isAssignmentExpired(assignment.dueDate)
+                    isAssignmentExpired(assignment.deadline)
                       ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
                       : 'bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400'
                   }`}>
-                    截止日期：{assignment.dueDate} ({getDueDateStatus(assignment.dueDate)})
+                    截止日期：{assignment.deadline ? new Date(assignment.deadline).toLocaleDateString('zh-CN') : '-'} ({getDueDateStatus(assignment.deadline)})
                   </span>
                 </div>
               </div>
@@ -468,7 +311,9 @@ export default function StudentAssignmentSubmit() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">布置日期</p>
-                    <p className="text-base font-medium text-gray-900 dark:text-white">{assignment.assignedDate}</p>
+                    <p className="text-base font-medium text-gray-900 dark:text-white">
+                      {assignment.createdAt ? new Date(assignment.createdAt).toLocaleDateString('zh-CN') : '-'}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -477,7 +322,7 @@ export default function StudentAssignmentSubmit() {
               <div className="mt-6">
                 <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">作业描述</h3>
                 <div className="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
-                  <p className="text-gray-600 dark:text-gray-300">{assignment.description}</p>
+                  <p className="text-gray-600 dark:text-gray-300">{assignment.description || '暂无描述'}</p>
                 </div>
               </div>
               
@@ -486,22 +331,48 @@ export default function StudentAssignmentSubmit() {
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">参考附件</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {assignment.attachments.map(attachment => (
-                      <div 
-                        key={attachment.id}
-                        className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                        onClick={() => handleViewAttachment(attachment)}
-                      >
-                        {attachment.type === 'pdf' && <i className="fa-solid fa-file-pdf text-red-500 text-lg mr-3"></i>}
-                        {attachment.type === 'image' && <i className="fa-solid fa-file-image text-blue-500 text-lg mr-3"></i>}
-                        {attachment.type === 'video' && <i className="fa-solid fa-file-video text-green-500 text-lg mr-3"></i>}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{attachment.name}</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{attachment.type.toUpperCase()}</p>
-                        </div>
-                        <i className="fa-solid fa-chevron-right text-gray-400"></i>
-                      </div>
-                    ))}
+                    {assignment.attachments.map((attachment: any, index: number) => {
+                      // 确保 attachment 是字符串类型
+                      const attachmentUrl = typeof attachment === 'string' ? attachment : (attachment?.url || '');
+                      if (!attachmentUrl) return null;
+                      
+                      const fileName = attachmentUrl.split('/').pop() || '附件';
+                      const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+                      let fileType = 'file';
+                      let iconClass = 'fa-file';
+                      let iconColor = 'text-gray-500';
+                      
+                      if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt)) {
+                        fileType = 'image';
+                        iconClass = 'fa-file-image';
+                        iconColor = 'text-blue-500';
+                      } else if (fileExt === 'pdf') {
+                        fileType = 'pdf';
+                        iconClass = 'fa-file-pdf';
+                        iconColor = 'text-red-500';
+                      } else if (['mp4', 'avi', 'mov'].includes(fileExt)) {
+                        fileType = 'video';
+                        iconClass = 'fa-file-video';
+                        iconColor = 'text-green-500';
+                      }
+                      
+                      return (
+                        <a 
+                          key={index}
+                          href={attachmentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg flex items-center hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <i className={`fa-solid ${iconClass} ${iconColor} text-lg mr-3`}></i>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-800 dark:text-white truncate">{fileName}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{fileExt.toUpperCase()}</p>
+                          </div>
+                          <i className="fa-solid fa-external-link text-gray-400"></i>
+                        </a>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -517,11 +388,11 @@ export default function StudentAssignmentSubmit() {
                 {/* 拖放上传区域 */}
                 <div 
                   className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                    isAssignmentExpired(assignment.dueDate) 
+                    isAssignmentExpired(assignment.deadline) 
                       ? 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50' 
                       : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 hover:border-orange-500 dark:hover:border-orange-500'
                   }`}
-                  onClick={() => !isAssignmentExpired(assignment.dueDate) && document.getElementById('file-upload')?.click()}
+                  onClick={() => !isAssignmentExpired(assignment.deadline) && document.getElementById('file-upload')?.click()}
                 >
                   <input
                     id="file-upload"
@@ -530,10 +401,10 @@ export default function StudentAssignmentSubmit() {
                     multiple
                     className="hidden"
                     onChange={handleFileUpload}
-                    disabled={isAssignmentExpired(assignment.dueDate)}
+                    disabled={isAssignmentExpired(assignment.deadline)}
                   />
                   
-                  {isAssignmentExpired(assignment.dueDate) ? (
+                  {isAssignmentExpired(assignment.deadline) ? (
                     <div className="flex flex-col items-center justify-center">
                       <i className="fa-solid fa-exclamation-circle text-red-500 text-3xl mb-3"></i>
                       <p className="text-sm text-gray-600 dark:text-gray-400">作业已过期，无法上传文件</p>
@@ -559,7 +430,8 @@ export default function StudentAssignmentSubmit() {
                         <div className="aspect-video bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden">
                           <img
                             src={file.previewUrl}
-                            alt={file.file.name}className="w-full h-full object-cover"
+                            alt={file.file.name}
+                            className="w-full h-full object-cover"
                           />
                         </div>
                         <button
@@ -579,9 +451,9 @@ export default function StudentAssignmentSubmit() {
               <div className="flex justify-end space-x-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <button
                   onClick={handleSaveDraft}
-                  disabled={isAssignmentExpired(assignment.dueDate) || uploadedFiles.length === 0 || isSavingDraft}
+                  disabled={isAssignmentExpired(assignment.deadline) || uploadedFiles.length === 0 || isSavingDraft}
                   className={`px-6 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 transition-colors ${
-                    isAssignmentExpired(assignment.dueDate) ? 'cursor-not-allowed' : ''
+                    isAssignmentExpired(assignment.deadline) ? 'cursor-not-allowed' : ''
                   }`}
                 >
                   {isSavingDraft ? (
@@ -599,9 +471,9 @@ export default function StudentAssignmentSubmit() {
                 
                 <button
                   onClick={handleSubmitAssignment}
-                  disabled={isAssignmentExpired(assignment.dueDate) || uploadedFiles.length === 0 || isSubmitting}
+                  disabled={isAssignmentExpired(assignment.deadline) || uploadedFiles.length === 0 || isSubmitting}
                   className={`px-6 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-orange-600 dark:bg-orange-700 hover:bg-orange-700 dark:hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:opacity-50 transition-colors ${
-                    isAssignmentExpired(assignment.dueDate) ? 'cursor-not-allowed' : ''
+                    isAssignmentExpired(assignment.deadline) ? 'cursor-not-allowed' : ''
                   }`}
                 >
                   {isSubmitting ? (
@@ -642,9 +514,6 @@ export default function StudentAssignmentSubmit() {
           <p>© 2025 智慧教辅系统 - 学生后台</p>
         </div>
       </footer>
-      
-      {/* 附件预览弹窗 */}
-      {showAttachmentPreview && renderAttachmentPreview()}
     </div>
   );
 }

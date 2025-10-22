@@ -74,3 +74,109 @@
 .formatted-content blockquote {
   margin: 0.5rem 0;
 }
+
+/* ===============================================
+   数学公式（KaTeX）样式优化
+   =============================================== */
+
+/* 行内公式样式 */
+.katex {
+  font-size: 1.1em !important;
+}
+
+/* 块级公式容器 */
+.katex-display {
+  margin: 1.5em 0 !important;
+  padding: 1.5em 1em !important;
+  background: linear-gradient(135deg, #f6f9fc 0%, #f0f4f8 100%) !important;
+  border-radius: 12px !important;
+  border: 2px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+/* 暗黑模式下的块级公式 */
+.dark .katex-display {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+  border-color: #334155 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 公式内容居中 */
+.katex-display > .katex {
+  text-align: center !important;
+  display: block !important;
+  white-space: nowrap !important;
+}
+
+/* 公式文本颜色 */
+.katex {
+  color: #1e293b !important;
+}
+
+.dark .katex {
+  color: #e2e8f0 !important;
+}
+
+/* 行内公式背景 */
+.markdown-content .katex:not(.katex-display .katex) {
+  padding: 0.2em 0.4em !important;
+  background: rgba(59, 130, 246, 0.08) !important;
+  border-radius: 4px !important;
+  border: 1px solid rgba(59, 130, 246, 0.15) !important;
+  margin: 0 0.1em !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+}
+
+.dark .markdown-content .katex:not(.katex-display .katex) {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.25) !important;
+}
+
+/* 公式字体优化 */
+.katex .mathnormal,
+.katex .mathit,
+.katex .textrm {
+  font-family: 'KaTeX_Math', 'Times New Roman', serif !important;
+}
+
+/* 操作符优化 */
+.katex .mop,
+.katex .mbin,
+.katex .mrel {
+  font-weight: 500 !important;
+}
+
+/* 确保公式在移动端可滚动 */
+@media (max-width: 640px) {
+  .katex-display {
+    padding: 1em 0.5em !important;
+    font-size: 0.95em !important;
+  }
+  
+  .katex-display > .katex {
+    overflow-x: auto !important;
+    max-width: 100% !important;
+  }
+}
+
+/* 公式滚动条样式 */
+.katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.katex-display::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 3px;
+}
+
+.katex-display::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+}
+
+.katex-display::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+}

@@ -1,7 +1,10 @@
-import { useContext, useState } from "react";
+import { useContext, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthContext } from "@/contexts/authContext";
 import { toast } from "sonner";
+import { createAssignment, publishAssignment } from "@/services/assignmentApi";
+import { getActiveClasses } from "@/services/classApi";
+import { uploadFile } from "@/services/uploadApi";
 
 const subjects = [{
     id: "math",
@@ -66,6 +69,8 @@ export default function CreateAssignment() {
                     name: assignment.name || "",
                     description: assignment.description || "",
                     subject: subjects.find(s => s.name === assignment.subject)?.id || "",
+                    classId: "",
+                    totalScore: 100,
                     assignedDate: assignment.assignedDate || new Date().toISOString().split("T")[0],
                     dueDate: assignment.dueDate || new Date(new Date().setDate(new Date().getDate() + 7)).toISOString().split("T")[0]
                 };
@@ -78,84 +83,37 @@ export default function CreateAssignment() {
             name: "",
             description: "",
             subject: "",
+            classId: "",
+            totalScore: 100,
             assignedDate: new Date().toISOString().split("T")[0],
             dueDate: new Date(new Date().setDate(new Date().getDate() + 7)).toISOString().split("T")[0]
         };
     });
-
-    const [students] = useState<Student[]>([{
-        id: 1,
-        name: "张三",
-        studentId: "2025001"
-    }, {
-        id: 2,
-        name: "李四",
-        studentId: "2025002"
-    }, {
-        id: 3,
-        name: "王五",
-        studentId: "2025003"
-    }, {
-        id: 4,
-        name: "赵六",
-        studentId: "2025004"
-    }, {
-        id: 5,
-        name: "孙七",
-        studentId: "2025005"
-    }, {
-        id: 6,
-        name: "周八",
-        studentId: "2025006"
-    }, {
-        id: 7,
-        name: "吴九",
-        studentId: "2025007"
-    }, {
-        id: 8,
-        name: "郑十",
-        studentId: "2025008"
-    }, {
-        id: 9,
-        name: "钱十一",
-        studentId: "2025009"
-    }, {
-        id: 10,
-        name: "孙十二",
-        studentId: "2025010"
-    }]);
-
-     const [selectedStudents, setSelectedStudents] = useState(() => {
-        // 检查是否有正在编辑的作业
-        const editingAssignment = localStorage.getItem('editingAssignment');
-        if (editingAssignment) {
-            try {
-                const assignment = JSON.parse(editingAssignment);
-                return assignment.isAllStudents ? [] : assignment.selectedStudents || [];
-            } catch (error) {
-                console.error("Failed to parse editing assignment:", error);
-            }
-        }
-        return [];
-    });
     
-    const [selectAllStudents, setSelectAllStudents] = useState(() => {
-        // 检查是否有正在编辑的作业
-        const editingAssignment = localStorage.getItem('editingAssignment');
-        if (editingAssignment) {
-            try {
-                const assignment = JSON.parse(editingAssignment);
-                return assignment.isAllStudents || false;
-            } catch (error) {
-                console.error("Failed to parse editing assignment:", error);
-            }
-        }
-        return false;
-    });
+    const [classList, setClassList] = useState<{ id: number; name: string }[]>([]);
     
     const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
     const [uploading, setUploading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // 加载班级列表
+    useEffect(() => {
+        const loadClasses = async () => {
+            try {
+                const classes = await getActiveClasses();
+                setClassList(classes);
+                // 如果只有一个班级，自动选中
+                if (classes.length === 1) {
+                    setFormData(prev => ({ ...prev, classId: classes[0].id.toString() }));
+                }
+            } catch (error) {
+                console.error('加载班级列表失败:', error);
+                toast.error('加载班级列表失败');
+            }
+        };
+        
+        loadClasses();
+    }, []);
 
     if (user && user.role !== "teacher") {
         navigate("/");
@@ -176,12 +134,12 @@ export default function CreateAssignment() {
         }));
     };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
             setUploading(true);
 
-            setTimeout(() => {
-                const newFiles: UploadedFile[] = Array.from(e.target.files).map(file => ({
+            try {
+                const newFiles: UploadedFile[] = Array.from(e.target.files!).map(file => ({
                     id: Date.now() + Math.random().toString(36).substr(2, 9),
                     file,
                     previewUrl: URL.createObjectURL(file),
@@ -189,9 +147,14 @@ export default function CreateAssignment() {
                 }));
 
                 setUploadedFiles(prev => [...prev, ...newFiles]);
+                toast.success('文件添加成功');
+            } catch (error) {
+                console.error('文件添加失败:', error);
+                toast.error('文件添加失败');
+            } finally {
                 setUploading(false);
                 e.target.value = "";
-            }, 800);
+            }
         }
     };
 
@@ -199,7 +162,7 @@ export default function CreateAssignment() {
         setUploadedFiles(prev => prev.filter(file => file.id !== id));
     };
 
-     const handleSubmit = (e: React.FormEvent) => {
+     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         if (!formData.name.trim()) {
@@ -209,6 +172,11 @@ export default function CreateAssignment() {
 
         if (!formData.subject) {
             toast.error("请选择所属学科");
+            return;
+        }
+        
+        if (!formData.classId) {
+            toast.error("请选择班级");
             return;
         }
 
@@ -222,48 +190,50 @@ export default function CreateAssignment() {
             return;
         }
 
-        if (!selectAllStudents && selectedStudents.length === 0) {
-            toast.error("请选择至少一名学生");
-            return;
-        }
-
         setIsSubmitting(true);
 
-        setTimeout(() => {
-            setIsSubmitting(false);
+        try {
+            // 1. 上传附件
+            let attachments: any[] = [];
+            if (uploadedFiles.length > 0) {
+                toast.info('正在上传附件...');
+                const uploadPromises = uploadedFiles.map(file => 
+                    uploadFile(file.file, 'assignment')
+                );
+                const uploadResults = await Promise.all(uploadPromises);
+                attachments = uploadResults.map((result, index) => ({
+                    name: uploadedFiles[index].file.name,
+                    url: result.data.url,
+                    type: uploadedFiles[index].type,
+                    size: uploadedFiles[index].file.size
+                }));
+            }
             
-            // 从本地存储获取现有作业
-            const existingAssignments = JSON.parse(localStorage.getItem('teacherAssignments') || '[]');
-            
-            // 创建新的已布置作业对象
-            const publishedAssignment = {
-                id: Date.now(),
-                name: formData.name,
+            // 2. 创建作业
+            const response = await createAssignment({
+                title: formData.name,
                 description: formData.description,
                 subject: subjects.find(s => s.id === formData.subject)?.name || formData.subject,
-                assignedDate: formData.assignedDate,
-                dueDate: formData.dueDate,
-                totalStudents: selectAllStudents ? students.length : selectedStudents.length,
-                completed: 0,
-                pending: selectAllStudents ? students.length : selectedStudents.length,
-                status: 'published', // 已发布状态
-                selectedStudents: selectAllStudents ? [] : selectedStudents,
-                isAllStudents: selectAllStudents
-            };
+                classId: parseInt(formData.classId),
+                deadline: formData.dueDate,
+                totalScore: formData.totalScore,
+                attachments
+            });
             
-            // 添加到现有作业数组
-            const updatedAssignments = [publishedAssignment, ...existingAssignments];
+            // 3. 发布作业
+            await publishAssignment(response.data.id);
             
-            // 保存回本地存储
-            localStorage.setItem('teacherAssignments', JSON.stringify(updatedAssignments));
-            
-            const targetStudents = selectAllStudents ? "所有学生" : students.filter(s => selectedStudents.includes(s.id)).map(s => s.name).join(", ");
-            toast.success(`作业布置成功，已发送给 ${targetStudents}`);
+            toast.success('作业布置成功');
             navigate("/teacher/assignments");
-        }, 1500);
+        } catch (error: any) {
+            console.error('布置作业失败:', error);
+            toast.error('布置作业失败: ' + (error.message || '未知错误'));
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
-     const handleSaveDraft = () => {
+     const handleSaveDraft = async () => {
         if (!formData.name.trim()) {
             toast.error("请输入作业名称");
             return;
@@ -273,40 +243,50 @@ export default function CreateAssignment() {
             toast.error("请选择所属学科");
             return;
         }
+        
+        if (!formData.classId) {
+            toast.error("请选择班级");
+            return;
+        }
 
         setIsSubmitting(true);
 
-        setTimeout(() => {
-            setIsSubmitting(false);
+        try {
+            // 1. 上传附件（如果有）
+            let attachments: any[] = [];
+            if (uploadedFiles.length > 0) {
+                toast.info('正在上传附件...');
+                const uploadPromises = uploadedFiles.map(file => 
+                    uploadFile(file.file, 'assignment')
+                );
+                const uploadResults = await Promise.all(uploadPromises);
+                attachments = uploadResults.map((result, index) => ({
+                    name: uploadedFiles[index].file.name,
+                    url: result.data.url,
+                    type: uploadedFiles[index].type,
+                    size: uploadedFiles[index].file.size
+                }));
+            }
             
-            // 从本地存储获取现有作业
-            const existingAssignments = JSON.parse(localStorage.getItem('teacherAssignments') || '[]');
-            
-            // 创建新的草稿作业对象
-            const draftAssignment = {
-                id: Date.now(), // 使用时间戳作为临时ID
-                name: formData.name,
+            // 2. 创建作业草稿（不发布）
+            await createAssignment({
+                title: formData.name,
                 description: formData.description,
                 subject: subjects.find(s => s.id === formData.subject)?.name || formData.subject,
-                assignedDate: formData.assignedDate,
-                dueDate: formData.dueDate,
-                totalStudents: selectAllStudents ? students.length : selectedStudents.length,
-                completed: 0,
-                pending: selectAllStudents ? students.length : selectedStudents.length,
-                status: 'draft', // 草稿状态
-                selectedStudents: selectAllStudents ? [] : selectedStudents,
-                isAllStudents: selectAllStudents
-            };
-            
-            // 添加到现有作业数组
-            const updatedAssignments = [draftAssignment, ...existingAssignments];
-            
-            // 保存回本地存储
-            localStorage.setItem('teacherAssignments', JSON.stringify(updatedAssignments));
+                classId: parseInt(formData.classId),
+                deadline: formData.dueDate,
+                totalScore: formData.totalScore,
+                attachments
+            });
             
             toast.success("作业草稿保存成功");
             navigate("/teacher/assignments");
-        }, 1500);
+        } catch (error: any) {
+            console.error('保存草稿失败:', error);
+            toast.error('保存草稿失败: ' + (error.message || '未知错误'));
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -427,10 +407,9 @@ export default function CreateAssignment() {
                                 </select>
                             </div>
                             {}
-                            {}
                             <div>
                                 <label
-                                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">选择学生 <span className="text-red-500">*</span>
+                                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">选择班级 <span className="text-red-500">*</span>
                                 </label>
                                 <div className="relative">
                                     <div
@@ -438,50 +417,38 @@ export default function CreateAssignment() {
                                         <i className="fa-solid fa-users text-gray-400"></i>
                                     </div>
                                     <select
-                                        className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white transition-colors cursor-pointer"
-                                        value={selectAllStudents ? "all" : "select"}
-                                        onChange={e => {
-                                            if (e.target.value === "all") {
-                                                setSelectAllStudents(true);
-                                                setSelectedStudents([]);
-                                            } else {
-                                                setSelectAllStudents(false);
-                                                setSelectedStudents(students.slice(0, 5).map(s => s.id));
-                                            }
-                                        }}>
-                                        <option value="all">所有学生</option>
-                                        <option value="select">选择部分学生</option>
+                                        name="classId"
+                                        value={formData.classId}
+                                        onChange={handleInputChange}
+                                        className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white transition-colors cursor-pointer">
+                                        <option value="">请选择班级</option>
+                                        {classList.map(cls => <option key={cls.id} value={cls.id}>
+                                            {cls.name}
+                                        </option>)}
                                     </select>
                                 </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    作业将布置给该班级的所有学生
+                                </p>
                             </div>
                             {}
-                            {!selectAllStudents && <div
-                                className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-center justify-between mb-2">
-                                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">已选择 {selectedStudents.length}名学生</h4>
-                                    <></>
-                                </div>
-                                <div
-                                    className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-2">
-                                    {students.map(student => <label
-                                        key={student.id}
-                                        className="flex items-center p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedStudents.includes(student.id)}
-                                            onChange={e => {
-                                                if (e.target.checked) {
-                                                    setSelectedStudents(prev => [...prev, student.id]);
-                                                } else {
-                                                    setSelectedStudents(prev => prev.filter(id => id !== student.id));
-                                                }
-                                            }}
-                                            className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 dark:focus:ring-green-600 dark:ring-offset-gray-800 dark:bg-gray-700 dark:border-gray-600" />
-                                        <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{student.name}({student.studentId})</span>
-                                    </label>)}
-                                </div>
-                            </div>}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                            <div>
+                                <label
+                                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">总分
+                                </label>
+                                <input
+                                    type="number"
+                                    name="totalScore"
+                                    value={formData.totalScore}
+                                    onChange={handleInputChange}
+                                    min="1"
+                                    max="1000"
+                                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white transition-colors"
+                                    placeholder="请输入作业总分" />
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">默认100分
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
                                     <label
                                         className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">布置日期 <span className="text-red-500">*</span>
